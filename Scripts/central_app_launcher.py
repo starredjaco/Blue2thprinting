@@ -795,6 +795,224 @@ else:
 
 APPLE_COMPANY_ID = 0x004C  # Apple devices get deprioritized; we already have plenty of data on them.
 
+# ----------------------------------------------------------------------------
+# Adv-signature-based deprioritization
+# ----------------------------------------------------------------------------
+# In addition to the legacy "any device whose first MSD is Apple" rule, we
+# also deprioritize devices whose entire AD signature matches one for which
+# we already have full GATT data in the local bt2 database. The signature is
+# the set of stable (non-device-unique) AD fields we observed across our
+# pcap corpus — see Analysis/build_adv_signature_priority.py for how this
+# CSV is generated and the SIGNATURE_DESIGN doc-comment in that file for the
+# field definition.
+#
+# CSV format (one row per signature, '#'-prefixed lines are comments):
+#   <signature>,<deprioritized 0|1>,<bdaddr_count>
+# We only retain the signatures with deprioritized==1.
+
+ADV_SIGNATURE_CSV_PATH = str(REPO_ROOT / "Analysis/adv_signature_priority.csv")
+
+# Parsed deprioritized "anchor" signatures. Each entry is a tuple of
+#   (raw_signature_string, parsed_dict)
+# where parsed_dict maps key -> frozenset(values), e.g. for the row
+#   mfr=004c
+# we store ("mfr=004c", {"mfr": frozenset({"004c"})}). At lookup time we
+# do *subset* matching: a device's full signature matches the entry iff
+# every key=value pair in the entry is also present in the device's sig.
+# That way the CSV needs to carry only the *minimal* deprio signatures —
+# any superset device sig is automatically caught. See SIGNATURE_DESIGN
+# in Analysis/build_adv_signature_priority.py for the full rationale.
+_deprioritized_adv_signatures = []  # list[tuple[str, dict[str, frozenset]]]
+
+# BlueZ Device1 props arrive incrementally (an InterfacesAdded snapshot, then
+# PropertiesChanged for each later update). To compute the full signature on
+# every update we cache the relevant AD-derived properties per bdaddr and
+# merge into them as PropertiesChanged events arrive. The cache holds only
+# the keys that contribute to signatures.
+_SIG_RELEVANT_PROPS = (
+    "AdvertisingFlags", "UUIDs", "ServiceData", "ManufacturerData",
+    "Appearance", "TxPower",
+)
+_device_sig_props = {}  # {bdaddr: {prop_name: unwrapped_value}}
+_device_sig_props_lock = threading.Lock()
+
+# Suffix common to all UUID16/UUID32 forms of the BT base UUID. Anything
+# ending in this suffix is a 16- or 32-bit assigned-number UUID expanded
+# to UUID128 form by BlueZ; everything else is a true 128-bit custom UUID.
+_BT_BASE_UUID_SUFFIX = "-0000-1000-8000-00805f9b34fb"
+
+
+def _parse_signature_string(s):
+    """'k1=v1+v2|k2=v3' -> {'k1': frozenset({'v1','v2'}), 'k2': frozenset({'v3'})}.
+
+    Mirror of build_adv_signature_priority.parse_signature(); kept here as
+    a duplicate to avoid an import dependency on the Analysis tree at
+    runtime (this file ships standalone on the capture host).
+    """
+    out = {}
+    if not s:
+        return out
+    for part in s.split("|"):
+        k, sep, v = part.partition("=")
+        if not sep:
+            continue
+        out[k] = frozenset(v.split("+")) if v else frozenset()
+    return out
+
+
+def _load_deprioritized_adv_signatures(csv_path):
+    """Load the deprioritized-only subset of the signature CSV into the
+    module-level list, parsing each entry up-front for fast subset matching.
+    Safe to call before workers start."""
+    global _deprioritized_adv_signatures
+    if not os.path.exists(csv_path):
+        print(f"WARN: adv signature CSV not found at {csv_path} — "
+              f"signature-based deprioritization disabled. "
+              f"Run Analysis/build_adv_signature_priority.py to create it.")
+        return
+    deprio = []
+    total = 0
+    try:
+        with open(csv_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                # csv-without-csv: signatures don't contain commas (we use '+'
+                # for list separators inside signatures specifically so the
+                # outer CSV stays simple).
+                parts = line.split(",")
+                if len(parts) < 2:
+                    continue
+                sig, flag = parts[0], parts[1]
+                total += 1
+                try:
+                    if int(flag):
+                        deprio.append((sig, _parse_signature_string(sig)))
+                except ValueError:
+                    continue
+    except OSError as e:
+        print(f"WARN: failed to read {csv_path}: {e}")
+        return
+    _deprioritized_adv_signatures = deprio
+    print(f"Loaded {len(deprio)} deprioritized signatures (of {total} total) "
+          f"from {csv_path}")
+
+
+_load_deprioritized_adv_signatures(ADV_SIGNATURE_CSV_PATH)
+
+
+def _unwrap(v):
+    if isinstance(v, Variant):
+        return v.value
+    return v
+
+
+def _classify_uuid(uuid_str):
+    """Return ('u16', 'u32', or 'u128', stripped_hex) for a BlueZ UUID.
+
+    BlueZ always renders UUIDs in 8-4-4-4-12 form. UUID16 and UUID32 forms
+    have the BT base suffix and zero-padded prefix; UUID128 (custom) does
+    not. None on parse failure.
+    """
+    if not isinstance(uuid_str, str):
+        return None, None
+    u = uuid_str.lower()
+    if u.endswith(_BT_BASE_UUID_SUFFIX):
+        prefix = u.split("-", 1)[0]
+        if len(prefix) != 8:
+            return None, None
+        if prefix.startswith("0000"):
+            return "u16", prefix[4:]
+        return "u32", prefix
+    return "u128", u.replace("-", "")
+
+
+def _compute_adv_signature(merged_props):
+    """Build the deterministic signature string from a Device1 props dict.
+
+    Mirror Analysis/build_adv_signature_priority.py:build_signature() —
+    field separator '|', key=value '=', list separator '+', sorted keys,
+    sorted list values. Fields with no value are omitted.
+
+    Returns "" when no signature-bearing props are present.
+    """
+    components = {
+        "fl": set(), "u16": set(), "u32": set(), "u128": set(),
+        "sd16": set(), "sd32": set(), "sd128": set(),
+        "mfr": set(), "ap": set(), "tx": set(),
+    }
+
+    flags = _unwrap(merged_props.get("AdvertisingFlags"))
+    if isinstance(flags, (bytes, bytearray)) and len(flags) >= 1:
+        # Mask reserved bits to match the pcap-side normalisation in
+        # build_adv_signature_priority.py:parse_packet().
+        components["fl"].add(f"{flags[0] & 0x1F:02x}")
+    elif isinstance(flags, list) and len(flags) >= 1:
+        try:
+            components["fl"].add(f"{int(flags[0]) & 0x1F:02x}")
+        except (TypeError, ValueError):
+            pass
+
+    uuids = _unwrap(merged_props.get("UUIDs")) or []
+    if isinstance(uuids, list):
+        for u in uuids:
+            kind, val = _classify_uuid(u)
+            if kind is not None:
+                components[kind].add(val)
+
+    sd = _unwrap(merged_props.get("ServiceData")) or {}
+    if isinstance(sd, dict):
+        for u in sd.keys():
+            kind, val = _classify_uuid(u)
+            if kind is not None:
+                # Map u16/u32/u128 -> sd16/sd32/sd128
+                components["sd" + kind[1:]].add(val)
+
+    md = _unwrap(merged_props.get("ManufacturerData")) or {}
+    if isinstance(md, dict):
+        for cid in md.keys():
+            try:
+                components["mfr"].add(f"{int(cid):04x}")
+            except (TypeError, ValueError):
+                continue
+
+    app = _unwrap(merged_props.get("Appearance"))
+    if app is not None:
+        try:
+            components["ap"].add(f"{int(app):04x}")
+        except (TypeError, ValueError):
+            pass
+
+    txp = _unwrap(merged_props.get("TxPower"))
+    if txp is not None:
+        try:
+            components["tx"].add(str(int(txp)))
+        except (TypeError, ValueError):
+            pass
+
+    parts = []
+    for k in sorted(components.keys()):
+        if not components[k]:
+            continue
+        parts.append(f"{k}={'+'.join(sorted(components[k]))}")
+    return "|".join(parts)
+
+
+def _update_sig_props_cache(bdaddr, props):
+    """Merge any signature-relevant entries from props into the cache.
+
+    Returns the merged dict (a copy you can safely pass to
+    _compute_adv_signature without further locking).
+    """
+    with _device_sig_props_lock:
+        cache = _device_sig_props.setdefault(bdaddr, {})
+        for k in _SIG_RELEVANT_PROPS:
+            if k in props:
+                cache[k] = props[k]
+        return dict(cache)
+
+
 def _classify(props):
     """Return 'BTC' if Device1 props look like BR/EDR, else 'BLE'."""
     return "BTC" if "Class" in props else "BLE"
@@ -829,29 +1047,75 @@ def _manufacturer_keys(props):
         return set(v.keys())
     return set()
 
-def _maybe_deprioritize(bdaddr, kind, mfr_keys):
-    """Mirror the legacy 0x004c (Apple) deprioritization behavior."""
-    if APPLE_COMPANY_ID not in mfr_keys:
-        return False
-    key_str = f"0x{APPLE_COMPANY_ID:04x}"
+def _move_to_deprioritized(bdaddr, kind, reason):
+    """Move bdaddr from the active dict to the deprioritized one.
+
+    Returns True if the move happened (i.e. the bdaddr was still active).
+    Used by both the legacy Apple-CID rule and the signature-CSV rule.
+    """
     if kind == "BLE":
         with ble_bdaddrs_lock:
             if bdaddr in ble_bdaddrs:
                 (atype, rssi) = ble_bdaddrs[bdaddr]
                 with ble_deprioritized_bdaddrs_lock:
-                    ble_deprioritized_bdaddrs[bdaddr] = (atype, rssi, key_str)
+                    ble_deprioritized_bdaddrs[bdaddr] = (atype, rssi, reason)
                 del ble_bdaddrs[bdaddr]
-                if(BLE_thread_enabled and print_verbose): print(f"Deprioritized BLE {atype} {bdaddr} due to ManufacturerData {key_str}")
+                if(BLE_thread_enabled and print_verbose):
+                    print(f"Deprioritized BLE {atype} {bdaddr} due to {reason}")
                 return True
     else:  # BTC
         with btc_bdaddrs_lock:
             if bdaddr in btc_bdaddrs:
                 (atype, rssi) = btc_bdaddrs[bdaddr]
                 with btc_deprioritized_bdaddrs_lock:
-                    btc_deprioritized_bdaddrs[bdaddr] = (atype, rssi, key_str)
+                    btc_deprioritized_bdaddrs[bdaddr] = (atype, rssi, reason)
                 del btc_bdaddrs[bdaddr]
-                if(BTC_thread_enabled and print_verbose): print(f"Deprioritized BTC {atype} {bdaddr} due to ManufacturerData {key_str}")
+                if(BTC_thread_enabled and print_verbose):
+                    print(f"Deprioritized BTC {atype} {bdaddr} due to {reason}")
                 return True
+    return False
+
+
+def _maybe_deprioritize(bdaddr, kind, mfr_keys):
+    """Mirror the legacy 0x004c (Apple) deprioritization behavior."""
+    if APPLE_COMPANY_ID not in mfr_keys:
+        return False
+    return _move_to_deprioritized(bdaddr, kind, f"ManufacturerData 0x{APPLE_COMPANY_ID:04x}")
+
+
+def _signature_subset_match(device_parsed, anchor_parsed):
+    """True if every (key, values) pair in anchor is present in device.
+
+    Anchor's values for a given key must all be in the device's values for
+    that key. Device may have *additional* keys and values; that's fine —
+    a shorter anchor subsuming a longer device sig is the whole point.
+    """
+    for k, vs in anchor_parsed.items():
+        dv = device_parsed.get(k)
+        if dv is None or not vs.issubset(dv):
+            return False
+    return True
+
+
+def _maybe_deprioritize_by_signature(bdaddr, kind, props):
+    """Deprioritize bdaddr if its current AD signature is a (non-strict)
+    superset of any deprio entry in the CSV.
+
+    `props` is the full Device1 prop dict (or just the changed subset).
+    We merge into the per-bdaddr cache before computing the signature so
+    that a PropertiesChanged delta still produces the full-state signature.
+    """
+    if not _deprioritized_adv_signatures:
+        return False
+    merged = _update_sig_props_cache(bdaddr, props)
+    sig = _compute_adv_signature(merged)
+    if not sig:
+        return False
+    device_parsed = _parse_signature_string(sig)
+    for anchor_sig, anchor_parsed in _deprioritized_adv_signatures:
+        if _signature_subset_match(device_parsed, anchor_parsed):
+            return _move_to_deprioritized(bdaddr, kind,
+                                          f"AdvSignature ⊇ {anchor_sig}")
     return False
 
 def _device_added(path, props):
@@ -883,6 +1147,8 @@ def _device_added(path, props):
         if(BTC_thread_enabled and print_verbose): print(f"[NEW] BTC {bdaddr} ({atype}, RSSI={rssi})")
     # If the seed/initial-snapshot already includes Apple ManufacturerData, deprioritize immediately.
     _maybe_deprioritize(bdaddr, kind, _manufacturer_keys(props))
+    # Likewise, if the initial props already match a known-data signature.
+    _maybe_deprioritize_by_signature(bdaddr, kind, props)
 
 def _device_removed(path):
     """Mirror the legacy [DEL] handling. We don't know the kind from the path alone, so try both dicts."""
@@ -949,6 +1215,20 @@ def _device_props_changed(path, changed):
                 if bdaddr in btc_bdaddrs: kind = "BTC"
         if kind is not None:
             _maybe_deprioritize(bdaddr, kind, _manufacturer_keys(changed))
+
+    # Re-evaluate the AD signature whenever any signature-bearing property
+    # changes — the same bdaddr can get a more-specific signature once
+    # later advertisements expose UUIDs / ServiceData / etc., and a more
+    # specific signature may newly match a deprioritized entry.
+    if any(k in changed for k in _SIG_RELEVANT_PROPS):
+        kind = None
+        with ble_bdaddrs_lock:
+            if bdaddr in ble_bdaddrs: kind = "BLE"
+        if kind is None:
+            with btc_bdaddrs_lock:
+                if bdaddr in btc_bdaddrs: kind = "BTC"
+        if kind is not None:
+            _maybe_deprioritize_by_signature(bdaddr, kind, changed)
 
 
 # Match rules registered with the bus daemon so it forwards the signals we care about.
