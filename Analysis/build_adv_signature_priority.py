@@ -76,7 +76,6 @@ import pickle
 import subprocess
 import time
 from collections import Counter, defaultdict
-from glob import glob
 
 # tshark fields, in the exact order parse_packet() unpacks them.
 TSHARK_FIELDS = [
@@ -425,6 +424,34 @@ def sig_is_subset(small, big):
     return True
 
 
+def load_deprioritized_seed(csv_path):
+    """Load deprioritized anchors from an earlier generated CSV.
+
+    Rotating BLE addresses mean a newer capture corpus may have little or no bdaddr overlap
+    with the database even though previously learned signature anchors remain valid. Seeding
+    keeps that accumulated knowledge while allowing the current corpus/database pair to add
+    new anchors. Counts are retained as ranking hints, not summed across corpora (which may
+    overlap).
+    """
+    if not csv_path:
+        return {}
+    seeded = {}
+    with open(csv_path, newline="") as f:
+        rows = csv.reader(line for line in f if not line.startswith("#"))
+        for row in rows:
+            if len(row) < 2 or row[1].strip() != "1":
+                continue
+            sig = row[0].strip()
+            if not sig:
+                continue
+            try:
+                count = int(row[2]) if len(row) >= 3 else 0
+            except ValueError:
+                count = 0
+            seeded[sig] = max(seeded.get(sig, 0), count)
+    return seeded
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -433,9 +460,14 @@ def main():
     ap.add_argument("--workers", type=int, default=max(1, mp.cpu_count() - 1),
                     help="tshark worker processes")
     ap.add_argument("--top-n", type=int, default=1000,
-                    help="Number of top signatures to write to the CSV")
+                    help="Target total rows. Every minimal deprioritized anchor is retained; "
+                         "remaining slots are filled with top novel signatures.")
     ap.add_argument("--output", default=str(Path(__file__).parent / "adv_signature_priority.csv"),
                     help="Output CSV path")
+    ap.add_argument("--seed-csv", default=None,
+                    help="Optional prior CSV whose deprioritized anchors are retained. "
+                         "Use this when updating from a newer capture corpus so rotating "
+                         "bdaddrs do not erase previously learned anchors.")
     ap.add_argument("--cache", default=None,
                     help="Optional pickle path to cache extracted per-bdaddr "
                          "components between runs. If the file exists and "
@@ -470,7 +502,7 @@ def main():
                   file=sys.stderr)
 
     if not cache_loaded:
-        pcap_paths = sorted(glob(os.path.join(args.pcap_dir, "*.pcap")))
+        pcap_paths = sorted(str(p) for p in Path(args.pcap_dir).rglob("*.pcap"))
         if not pcap_paths:
             print(f"No .pcap files found under {args.pcap_dir}", file=sys.stderr)
             sys.exit(1)
@@ -559,10 +591,26 @@ def main():
     print(f"DB has full GATT data for {len(bdaddrs_with_gatt)} distinct bdaddrs",
           file=sys.stderr)
 
-    sigs_meta = []  # (sig, deprio, count, parsed_dict)
+    sigs_meta_by_sig = {}  # sig -> (sig, deprio, count, parsed_dict)
     for sig, bdaddrs in sig_to_bdaddrs.items():
         deprio = 1 if any(bd in bdaddrs_with_gatt for bd in bdaddrs) else 0
-        sigs_meta.append((sig, deprio, len(bdaddrs), parse_signature(sig)))
+        sigs_meta_by_sig[sig] = (sig, deprio, len(bdaddrs), parse_signature(sig))
+
+    seeded = load_deprioritized_seed(args.seed_csv)
+    for sig, seed_count in seeded.items():
+        current = sigs_meta_by_sig.get(sig)
+        current_count = current[2] if current else 0
+        sigs_meta_by_sig[sig] = (
+            sig,
+            1,
+            max(seed_count, current_count),
+            parse_signature(sig),
+        )
+    if seeded:
+        print(f"Seeded {len(seeded)} deprioritized anchors from {args.seed_csv}",
+              file=sys.stderr)
+
+    sigs_meta = list(sigs_meta_by_sig.values())
 
     def _parsed_complexity(parsed):
         return (len(parsed), sum(len(v) for v in parsed.values()))
@@ -601,10 +649,13 @@ def main():
     print(f"Filtered novels subsumed by minimal-deprio: {novel_subsumed}",
           file=sys.stderr)
 
-    # Top-N by bdaddr count. After dedup the CSV may be shorter than top_n;
-    # that's the user's intent (no padding with redundant rows).
-    filtered.sort(key=lambda r: -r[2])
-    top = filtered[: args.top_n]
+    # Keep every minimal deprioritized anchor, then fill the remaining Top-N capacity with
+    # the most-common truly-novel signatures. A low-frequency learned anchor is operationally
+    # more important than the Nth novel signature and must not disappear merely due to rank.
+    deprioritized_rows = sorted((r for r in filtered if r[1] == 1), key=lambda r: -r[2])
+    novel_rows = sorted((r for r in filtered if r[1] == 0), key=lambda r: -r[2])
+    novel_capacity = max(0, args.top_n - len(deprioritized_rows))
+    top = sorted(deprioritized_rows + novel_rows[:novel_capacity], key=lambda r: -r[2])
 
     deprio_count = sum(1 for _s, d, _c in top if d == 1)
     with open(args.output, "w", newline="") as f:
@@ -615,7 +666,9 @@ def main():
         f.write("# row's signature is a subset of S (every key=value present in\n")
         f.write("# the row's signature is also present in S). Redundant supersets\n")
         f.write("# of any deprio=1 row are pruned from this CSV.\n")
-        writer = csv.writer(f)
+        f.write("# All minimal deprio=1 anchors are retained; remaining Top-N slots\n")
+        f.write("# are filled by the most-common novel signatures.\n")
+        writer = csv.writer(f, lineterminator="\n")
         for row in top:
             writer.writerow(row)
 
