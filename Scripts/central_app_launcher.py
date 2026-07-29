@@ -17,11 +17,13 @@ activate_venv()
 
 import argparse
 import asyncio
+import csv
 import datetime
 import subprocess
 import threading
 import time
 import glob
+import unicodedata
 from queue import Queue
 from subprocess import TimeoutExpired
 import traceback
@@ -1080,6 +1082,74 @@ def _load_deprioritized_adv_signatures(csv_path):
 
 _load_deprioritized_adv_signatures(ADV_SIGNATURE_CSV_PATH)
 
+# ----------------------------------------------------------------------------
+# Name-signature-based deprioritization
+# ----------------------------------------------------------------------------
+# Analysis/build_name_signature_priority.py derives this set from names in the
+# local bt2 database. A name is included when any distinct BDADDR observed with
+# that same normalized name already has GATT characteristic-value data.
+#
+# CSV format:
+#   <hex UTF-8 normalized name>,<deprioritized 0|1>,<bdaddr_count>
+NAME_SIGNATURE_CSV_PATH = str(REPO_ROOT / "Analysis/name_signature_priority.csv")
+_deprioritized_name_signatures = set()
+
+
+def _normalize_device_name(name):
+    """Mirror build_name_signature_priority.normalize_name()."""
+    if not isinstance(name, str):
+        return ""
+    normalized = unicodedata.normalize("NFKC", name)
+    start = 0
+    end = len(normalized)
+    while start < end and (normalized[start].isspace() or normalized[start] == "\x00"):
+        start += 1
+    while end > start and (normalized[end - 1].isspace() or normalized[end - 1] == "\x00"):
+        end -= 1
+    return normalized[start:end]
+
+
+def _name_signature(name):
+    normalized = _normalize_device_name(name)
+    return normalized.encode("utf-8").hex() if normalized else ""
+
+
+def _load_deprioritized_name_signatures(csv_path):
+    """Load valid deprioritized name signatures, ignoring novel/comment rows."""
+    global _deprioritized_name_signatures
+    if not os.path.exists(csv_path):
+        print(f"WARN: name signature CSV not found at {csv_path} — "
+              f"name-based deprioritization disabled. "
+              f"Run Analysis/build_name_signature_priority.py to create it.")
+        return
+    deprio = set()
+    total = 0
+    try:
+        with open(csv_path, "r", newline="", encoding="utf-8") as f:
+            rows = csv.reader(line for line in f if not line.lstrip().startswith("#"))
+            for row in rows:
+                if len(row) < 2:
+                    continue
+                signature = row[0].strip().lower()
+                total += 1
+                try:
+                    enabled = int(row[1])
+                    decoded = bytes.fromhex(signature)
+                    decoded.decode("utf-8")
+                except (ValueError, UnicodeDecodeError):
+                    continue
+                if enabled and signature:
+                    deprio.add(signature)
+    except OSError as e:
+        print(f"WARN: failed to read {csv_path}: {e}")
+        return
+    _deprioritized_name_signatures = deprio
+    print(f"Loaded {len(deprio)} deprioritized name signatures "
+          f"(of {total} total) from {csv_path}")
+
+
+_load_deprioritized_name_signatures(NAME_SIGNATURE_CSV_PATH)
+
 
 def _unwrap(v):
     if isinstance(v, Variant):
@@ -1218,6 +1288,12 @@ def _address(props):
         v = v.value
     return v.lower() if isinstance(v, str) else None
 
+def _device_name(props):
+    v = props.get("Name")
+    if isinstance(v, Variant):
+        v = v.value
+    return v if isinstance(v, str) else None
+
 def _manufacturer_keys(props):
     v = props.get("ManufacturerData")
     if isinstance(v, Variant):
@@ -1297,6 +1373,17 @@ def _maybe_deprioritize_by_signature(bdaddr, kind, props):
                                           f"AdvSignature ⊇ {anchor_sig}")
     return False
 
+
+def _maybe_deprioritize_by_name(bdaddr, kind, props):
+    """Deprioritize an active device whose BlueZ Name is already GATT-covered."""
+    if not _deprioritized_name_signatures:
+        return False
+    name = _device_name(props)
+    signature = _name_signature(name)
+    if not signature or signature not in _deprioritized_name_signatures:
+        return False
+    return _move_to_deprioritized(bdaddr, kind, f"Name {name!r}")
+
 def _device_added(path, props):
     """Handle a newly-discovered device. props is the org.bluez.Device1 a{sv} dict."""
     global device_connect_attempts, device_total_attempts
@@ -1330,6 +1417,9 @@ def _device_added(path, props):
     _maybe_deprioritize(bdaddr, kind, _manufacturer_keys(props))
     # Likewise, if the initial props already match a known-data signature.
     _maybe_deprioritize_by_signature(bdaddr, kind, props)
+    # Name is an independent signal: either AD/EIR or a remote-name result can
+    # identify a family for which another address already yielded GATT values.
+    _maybe_deprioritize_by_name(bdaddr, kind, props)
 
 def _device_removed(path):
     """Mirror the legacy [DEL] handling. We don't know the kind from the path alone, so try both dicts."""
@@ -1437,6 +1527,18 @@ def _device_props_changed(path, changed):
                 if bdaddr in btc_bdaddrs: kind = "BTC"
         if kind is not None:
             _maybe_deprioritize_by_signature(bdaddr, kind, changed)
+
+    # Name commonly arrives after InterfacesAdded (for example from an active
+    # scan response or BR/EDR remote-name request), so re-evaluate on updates.
+    if "Name" in changed:
+        kind = None
+        with ble_bdaddrs_lock:
+            if bdaddr in ble_bdaddrs: kind = "BLE"
+        if kind is None:
+            with btc_bdaddrs_lock:
+                if bdaddr in btc_bdaddrs: kind = "BTC"
+        if kind is not None:
+            _maybe_deprioritize_by_name(bdaddr, kind, changed)
 
 
 # Match rules registered with the bus daemon so it forwards the signals we care about.
