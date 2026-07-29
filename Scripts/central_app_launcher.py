@@ -172,6 +172,16 @@ ble_deprioritized_bdaddrs_lock = threading.Lock()
 btc_deprioritized_bdaddrs = {}
 btc_deprioritized_bdaddrs_lock = threading.Lock()
 
+# Devices whose exact structural GATT map is already well covered. Their
+# first Better_Getter pass commits handle/UUID data and exits before ATT_READ;
+# they move here until normal discovery/value work has drained. Promotion
+# records the address in gatt_force_read_bdaddrs so the reconnect cannot defer
+# itself a second time.
+ble_gatt_value_deprioritized_bdaddrs = {}
+ble_gatt_value_deprioritized_bdaddrs_lock = threading.Lock()
+gatt_force_read_bdaddrs = set()
+GATT_VALUES_DEFERRED_EXIT_CODE = 0x2D
+
 gatt_success_bdaddrs = {}
 gatt_success_bdaddrs_lock = threading.Lock()
 sdp_success_bdaddrs = {}
@@ -514,7 +524,16 @@ def all_2thprints_done(type, bdaddr):
 
 class ApplicationThread(threading.Thread):
     global serial_port_status
-    def __init__(self, process, bdaddr, info_type, timeout, launch_cmd="", bg_dongle_path=None):
+    def __init__(
+        self,
+        process,
+        bdaddr,
+        info_type,
+        timeout,
+        launch_cmd="",
+        bg_dongle_path=None,
+        gatt_device_state=None,
+    ):
         threading.Thread.__init__(self)
         self.process = process
         self.timeout = timeout
@@ -525,6 +544,7 @@ class ApplicationThread(threading.Thread):
         # When set, the GATT path returns this dongle to bg_dongle_queue on exit so
         # another BLE bdaddr can claim it next.
         self.bg_dongle_path = bg_dongle_path
+        self.gatt_device_state = gatt_device_state
         # Wall-clock at thread construction. _run_inner uses elapsed time vs this
         # to detect "Better_Getter exited almost instantly with non-zero rc" — the
         # cp210x EIO-on-serial-open signature — and flag the dongle for usbreset
@@ -613,6 +633,9 @@ class ApplicationThread(threading.Thread):
                            bg_dongle_consecutive_failures[self.bg_dongle_path] = 0
                        with gatt_success_bdaddrs_lock:
                            gatt_success_bdaddrs[self.bdaddr] = 1
+                           with ble_gatt_value_deprioritized_bdaddrs_lock:
+                               ble_gatt_value_deprioritized_bdaddrs.pop(self.bdaddr, None)
+                               gatt_force_read_bdaddrs.discard(self.bdaddr)
                            # Should only remove from ble_bdaddrs if all BLE-type prints are done
                            if(print_finished_bdaddrs): print(f"Successful GATTPrinting of {self.bdaddr}!")
                            if(all_2thprints_done("BLE", self.bdaddr)):
@@ -644,6 +667,40 @@ class ApplicationThread(threading.Thread):
                                if(print_finished_bdaddrs): print(f"All 2thprints collected! Deleting {self.bdaddr} from btc_bdaddrs!")
                     elif(self.info_type == "Sniffle"):
                        external_log_write(sdpprint_log_path, f"SNIFFLE LAUNCH SUCCESS: {self.launch_cmd} {datetime.datetime.now()}")
+                elif (
+                    self.info_type == "GATT"
+                    and retCode == GATT_VALUES_DEFERRED_EXIT_CODE
+                ):
+                    # Structural discovery succeeded and was written out, but
+                    # this exact map is already value-covered. Do not count the
+                    # intentional exit as a dongle failure. Remove it from the
+                    # normal queue and preserve enough state for a later forced
+                    # reconnect.
+                    external_log_write(
+                        bgprint_log_path,
+                        f"BETTERGETTER VALUES DEFERRED FOR: "
+                        f"{self.bdaddr} {datetime.datetime.now()}",
+                    )
+                    if self.bg_dongle_path is not None:
+                        bg_dongle_consecutive_failures[self.bg_dongle_path] = 0
+                    state = self.gatt_device_state
+                    with ble_bdaddrs_lock:
+                        state = ble_bdaddrs.pop(self.bdaddr, state)
+                        with ble_gatt_value_deprioritized_bdaddrs_lock:
+                            if state is not None:
+                                ble_gatt_value_deprioritized_bdaddrs[self.bdaddr] = state
+                            gatt_force_read_bdaddrs.discard(self.bdaddr)
+                    # The structural pass is successful staging work, not a
+                    # failed retry. Give the value phase its normal retry budget.
+                    device_connect_attempts[self.bdaddr] = 0
+                    device_total_attempts[self.bdaddr] = max(
+                        0, device_total_attempts.get(self.bdaddr, 1) - 1
+                    )
+                    if print_finished_bdaddrs:
+                        print(
+                            f"Saved GATT handle/UUID map for {self.bdaddr}; "
+                            "deferred readable values"
+                        )
                 else:
                     if(self.info_type == "GATT"):
                        external_log_write(bgprint_log_path, f"BETTERGETTER FAILURE 0x{retCode:02x} FOR: {self.bdaddr} {datetime.datetime.now()}")
@@ -1404,9 +1461,20 @@ def _device_added(path, props):
     if kind == "BLE":
         with btc_bdaddrs_lock:
             btc_bdaddrs.pop(bdaddr, None)
-        with ble_bdaddrs_lock:
-            ble_bdaddrs[bdaddr] = (atype, rssi)
-        if(BLE_thread_enabled and print_verbose): print(f"[NEW] BLE {bdaddr} ({atype}, RSSI={rssi})")
+        remains_value_deprioritized = False
+        with ble_gatt_value_deprioritized_bdaddrs_lock:
+            if bdaddr in ble_gatt_value_deprioritized_bdaddrs:
+                ble_gatt_value_deprioritized_bdaddrs[bdaddr] = (atype, rssi)
+                remains_value_deprioritized = True
+        if not remains_value_deprioritized:
+            with ble_bdaddrs_lock:
+                ble_bdaddrs[bdaddr] = (atype, rssi)
+            if(BLE_thread_enabled and print_verbose): print(f"[NEW] BLE {bdaddr} ({atype}, RSSI={rssi})")
+        elif BLE_thread_enabled and print_verbose:
+            print(
+                f"[NEW] BLE {bdaddr} ({atype}, RSSI={rssi}) remains "
+                "deprioritized for GATT value reads"
+            )
     else:
         with ble_bdaddrs_lock:
             ble_bdaddrs.pop(bdaddr, None)
@@ -1493,6 +1561,10 @@ def _device_props_changed(path, changed):
                         device_connect_attempts[bdaddr] -= 1
                     ble_bdaddrs[bdaddr] = (atype, new_rssi)
                     if(BLE_thread_enabled and print_rssi_updates): print(f"Updated BLE RSSI ({new_rssi}) for {bdaddr}")
+            with ble_gatt_value_deprioritized_bdaddrs_lock:
+                if bdaddr in ble_gatt_value_deprioritized_bdaddrs:
+                    (atype, _old_rssi) = ble_gatt_value_deprioritized_bdaddrs[bdaddr]
+                    ble_gatt_value_deprioritized_bdaddrs[bdaddr] = (atype, new_rssi)
             with btc_bdaddrs_lock:
                 if bdaddr in btc_bdaddrs:
                     (atype, old_rssi) = btc_bdaddrs[bdaddr]
@@ -1714,6 +1786,73 @@ def reprioritize_ble_bdaddr(bdaddr):
                 ble_bdaddrs[bdaddr] = (type, rssi)
                 print(f"Reprioritized {type} {bdaddr} ({rssi})")
 
+def reprioritize_ble_gatt_value_bdaddr(bdaddr):
+    """Promote one covered-map device for a forced value-reading reconnect."""
+    with ble_bdaddrs_lock:
+        with ble_gatt_value_deprioritized_bdaddrs_lock:
+            state = ble_gatt_value_deprioritized_bdaddrs.pop(bdaddr, None)
+            if state is None:
+                return False
+            ble_bdaddrs[bdaddr] = state
+            gatt_force_read_bdaddrs.add(bdaddr)
+    print(
+        f"Reprioritized {state[0]} {bdaddr} ({state[1]}) for forced "
+        "GATT characteristic-value reads"
+    )
+    return True
+
+
+def _promote_ble_fallbacks_for_capacity():
+    """Fill otherwise-idle BG slots without jumping ready normal work."""
+    available_slots = bg_dongle_queue.qsize()
+    if available_slots <= 0:
+        return
+    with bg_inflight_bdaddrs_lock:
+        inflight = set(bg_inflight_bdaddrs)
+    with ble_bdaddrs_lock:
+        ready_normal = sum(1 for bdaddr in ble_bdaddrs if bdaddr not in inflight)
+    slots_to_fill = max(0, available_slots - ready_normal)
+    if slots_to_fill == 0:
+        return
+
+    cutoff = datetime.datetime.now() - datetime.timedelta(
+        seconds=DEPRIORITIZED_RECENCY_S
+    )
+    for _ in range(slots_to_fill):
+        # Address/name/advertisement deprioritization is an earlier phase:
+        # these devices still need their structural GATT map, so they rank
+        # ahead of devices whose maps are already known and only need values.
+        with ble_deprioritized_bdaddrs_lock:
+            preconnect_candidates = sorted(
+                (
+                    (bdaddr, state[1])
+                    for bdaddr, state in ble_deprioritized_bdaddrs.items()
+                    if device_last_seen.get(bdaddr, datetime.datetime.min) >= cutoff
+                ),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+        if preconnect_candidates:
+            reprioritize_ble_bdaddr(preconnect_candidates[0][0])
+            continue
+
+        with ble_gatt_value_deprioritized_bdaddrs_lock:
+            value_candidates = sorted(
+                (
+                    (bdaddr, state[1])
+                    for bdaddr, state in
+                    ble_gatt_value_deprioritized_bdaddrs.items()
+                    if device_last_seen.get(bdaddr, datetime.datetime.min) >= cutoff
+                ),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+        if value_candidates:
+            reprioritize_ble_gatt_value_bdaddr(value_candidates[0][0])
+            continue
+        break
+
+
 def reprioritize_btc_bdaddr(bdaddr):
     with ble_bdaddrs_lock:
         type = ""
@@ -1730,6 +1869,11 @@ def ble_thread_function():
     global device_connect_attempts, device_total_attempts
     ble_external_tool_threads = []
     while True:
+        # If fewer ready normal addresses exist than currently-free BG dongles,
+        # fill the spare capacity from pre-connect deprioritized work first,
+        # then from covered-map value reads. With N dongles and N-1 ready normal
+        # devices this intentionally starts one deferred device in parallel.
+        _promote_ble_fallbacks_for_capacity()
         # Get the BDADDRs sorted in descending order of their RSSI, so we process higher RSSI first.
         # Snapshot under lock to avoid 'dictionary changed size during iteration' against the
         # D-Bus discovery callbacks which run on the asyncio main thread.
@@ -1760,23 +1904,8 @@ def ble_thread_function():
                 # Delete it otherwise it will just keep coming up over and over again in the while True loop
                 locked_delete_from_dict(ble_bdaddrs, ble_bdaddrs_lock, bdaddr)
 
-                if(skip_count == len(sorted_ble_bdaddrs) and len(ble_deprioritized_bdaddrs) > 0):
-                    print("BLE: Everything's being skipped. We could go ahead and do some deprioritized bdaddrs now...")
-                    # Only fall back onto deprioritized bdaddrs that we've still been
-                    # hearing adverts from in the last DEPRIORITIZED_RECENCY_S seconds.
-                    # Old entries (e.g., an Apple device that wandered out of range and
-                    # never got [DEL]'d because BlueZ kept it around) would otherwise
-                    # consume connect attempts on devices that aren't even present.
-                    cutoff = datetime.datetime.now() - datetime.timedelta(seconds=DEPRIORITIZED_RECENCY_S)
-                    with ble_deprioritized_bdaddrs_lock:
-                        recent_candidates = [b for b in ble_deprioritized_bdaddrs
-                                             if device_last_seen.get(b, datetime.datetime.min) >= cutoff]
-                    if recent_candidates:
-                        bdaddr = recent_candidates[0]
-                        print(f"BLE: Reprioritizing {bdaddr} (recently heard; {len(recent_candidates)} of {len(ble_deprioritized_bdaddrs)} deprioritized still active)")
-                        reprioritize_ble_bdaddr(bdaddr)
-                    else:
-                        print(f"BLE: No deprioritized bdaddrs heard in last {DEPRIORITIZED_RECENCY_S}s; nothing to reprioritize")
+                if(skip_count == len(sorted_ble_bdaddrs)):
+                    _promote_ble_fallbacks_for_capacity()
 
                 continue
             else:
@@ -1844,6 +1973,15 @@ def ble_thread_function():
                             # Skip-apple: BG will early-exit (rc 0x0A) on confirmed Apple devices.
                             if(better_getter_skip_apple):
                                 gatt_cmd.append("-A")
+                            with ble_gatt_value_deprioritized_bdaddrs_lock:
+                                force_value_reads = bdaddr in gatt_force_read_bdaddrs
+                            if force_value_reads:
+                                gatt_cmd.append("--force-read-values")
+                                external_log_write(
+                                    bgprint_log_path,
+                                    f"BETTERGETTER FORCED VALUE ATTEMPT FOR: "
+                                    f"{bdaddr} {datetime.datetime.now()}",
+                                )
                             try:
                                 if(sniffle_stdout_logging):
                                     sniffle_append_stdout = open(f"{BG_output_pcap_path}/Sniffle_stdout.log", "a")
@@ -1859,7 +1997,14 @@ def ble_thread_function():
                                 # This doesn't seem to ever resolve itself for hours after it eventually occurs (which takes about 5 hours). So I need to just reboot to resolve it
                                 force_reboot()
                             if(gatt_process != None):
-                                gatt_thread = ApplicationThread(gatt_process, bdaddr, info_type="GATT", timeout=20, bg_dongle_path=bg_dongle_path) # Unfortunately I found some device that can take ~21 sec(!) even when tested manually
+                                gatt_thread = ApplicationThread(
+                                    gatt_process,
+                                    bdaddr,
+                                    info_type="GATT",
+                                    timeout=20,
+                                    bg_dongle_path=bg_dongle_path,
+                                    gatt_device_state=(type, rssi),
+                                ) # Unfortunately I found some device that can take ~21 sec(!) even when tested manually
                                 try:
                                     gatt_thread.start()
                                     launched_thread = gatt_thread
@@ -1892,6 +2037,7 @@ def ble_thread_function():
         # running on the main thread it caused CPU starvation under the GIL — D-Bus signal
         # callbacks couldn't run, ble_bdaddrs never got populated, and the worker spun forever.
         while(len(ble_bdaddrs) == 0):
+            _promote_ble_fallbacks_for_capacity()
             time.sleep(1)
 
 

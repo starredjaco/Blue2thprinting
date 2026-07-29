@@ -124,10 +124,10 @@ def print_all_info():
         store_services_in_existing_format_expectations(begin_handle, end_handle, UUID128)
         i += 1
 
-def print_and_exit():
+def print_and_exit(exit_code=0):
     print_all_info()
     # Tear down with an LL_TERMINATE_IND
     # 0x13 = error code "Remote user terminated connection"
     write_outbound_pkt(3, b'\x02\x13')
     time.sleep(.1)
-    exit()
+    exit(exit_code)
