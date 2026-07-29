@@ -16,19 +16,20 @@ from TME.TME_GATT import match_known_GATT_UUID_or_custom_UUID
 from TME.TME_glob import i1, i2, i3, i4, i5 # Required for terser usage within print statements
 
 from colorama import Fore, Back, Style, init
-from scapy_to_BTIDES_common import bytes_to_hex_str, bytes_reversed_to_hex_str, bytes_to_utf8
+# bytes_to_hex_str / bytes_reversed_to_hex_str / bytes_to_utf8 actually live in
+# TME.TME_helpers; importing them via scapy_to_BTIDES_common dragged scapy onto
+# the analysis path, which broke `--input-BTIDES`-only runs on capture nodes
+# whose venv doesn't ship scapy.
+from TME.TME_helpers import bytes_to_hex_str, bytes_reversed_to_hex_str, bytes_to_utf8
 init(autoreset=True)
 
-# Returns 0 if there is no SDP info for this BDADDR in any of the SDP tables, else returns 1
+# Returns True if there is any SDP info for this BDADDR, else False.
+# SDP_Common is a BT Classic-only table (no bdaddr_random column) and its
+# unique index has `bdaddr` as the leftmost-prefix column, so a plain
+# `WHERE bdaddr = %s` is already indexed. The shared helper just narrows
+# the SELECT to `1 ... LIMIT 1` for a covering-index existence probe.
 def device_has_SDP_info(bdaddr):
-    # Query the database for all GATT services
-    values = (bdaddr,)
-    query = "SELECT bdaddr FROM SDP_Common WHERE bdaddr = %s";
-    SDP_result = execute_query(query, values)
-    if(len(SDP_result) != 0):
-        return 1;
-
-    return 0;
+    return device_row_exists_by_bdaddr("SDP_Common", bdaddr)
 
 # Per spec "DATA ELEMENT SIZE DESCRIPTOR" section
 data_element_size_to_actual_size = {

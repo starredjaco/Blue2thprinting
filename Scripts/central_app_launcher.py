@@ -41,13 +41,14 @@ Sniffle_thread_enabled = True
 
 lmp2thprint_enabled = True # When True, the BTC worker runs DarkFirmware_VSC_LMP (BlueZ Realtek-VSC) against discovered BR/EDR devices to capture LMP PDUs. The legacy ESP32 Braktooth + FTDI path has been removed.
 better_getter_enabled = True
+better_getter_skip_apple = True # When True, every Better_Getter.py launch gets -A (skip-apple), so BG early-exits (rc 0x0A) the moment it confirms an Apple device via Advertisement Company ID, LL_VERSION_IND, or the GATT Manufacturer Name. Belt-and-suspenders with the discovery-time APPLE_COMPANY_ID deprioritization below: a deprioritized Apple device that still reaches a BG launch via the fallback path won't waste a full ~20s enumeration timeout. Flip to False to fully enumerate Apple devices.
 sdptool_enabled = False    # Legacy SDP path via the custom bluez-5.66 sdptool binary. Kept as a toggleable fallback for diagnostics; superseded by btc_sdp_gatt_enabled below.
 btc_sdp_gatt_enabled = True # When True, runs Scripts/btc_sdp_gatt.py for SDP enumeration plus GATT-over-BR/EDR enumeration via BlueZ kernel L2CAP sockets. Enable this OR sdptool_enabled, not both — they probe the same target on the same hci adapter and would race.
 
 # Number of Sonoff dongles to reserve for Better_Getter.py (round-robin). Remaining
 # dongles are allocated to Sniffle per the channel-separation rules in
 # https://github.com/darkmentorllc/Blue2thprinting/issues/26
-MAX_BG = 1
+MAX_BG = 2
 
 # Realtek custom-firmware adapter cycling via per-port USB power switching.
 # Empirically, the DarkFirmware_real_i firmware on the Realtek dongle wedges
@@ -80,6 +81,11 @@ REALTEK_MAX_CONSECUTIVE_CYCLE_FAILURES = 3
 print_skipped = True
 print_verbose = True
 print_finished_bdaddrs = True
+# Per-update "Updated BLE/BTC RSSI (-NN) for AA:BB:..." lines are extremely
+# noisy in CAL.log (one per advertising packet that bluetoothd forwards via
+# PropertiesChanged). Off by default; flip to True to debug RSSI tracking
+# behaviour or the connect-attempt-decrement-on-rising-RSSI heuristic.
+print_rssi_updates = False
 sniffle_stdout_logging = False
 sniffle_log_rotate_in_seconds = 3600 # This will create a new log every hour if timeout=3600
 
@@ -95,6 +101,23 @@ max_connect_attempts = 3 # How many times to attempt connections before skipping
                          # Note: can be reset by a device disappearing (BlueZ InterfacesRemoved)
                          # and then being re-discovered (InterfacesAdded), which happens when a
                          # device's signal drops below BlueZ's tracking threshold and then recovers.
+# Cumulative per-launcher-run attempt counter. NOT reset by InterfacesAdded re-fires
+# (so the Realtek-cycle-induced re-discovery loop can't bypass the cap by zeroing
+# device_connect_attempts via _device_added). Hard ceiling regardless of how many
+# times BlueZ removes and re-adds the device.
+device_total_attempts = {}
+max_total_attempts = 10
+
+# Last datetime we saw any D-Bus signal (InterfacesAdded or PropertiesChanged) for
+# each bdaddr. Updated by the discovery loop on every advert; consulted by the BLE
+# worker's deprioritized-fallback path to skip stale entries that BlueZ still has
+# cached but haven't actually been heard from in a while.
+device_last_seen = {}
+# Reprioritization recency window: only fall back onto deprioritized bdaddrs that
+# we've still been hearing from within this many seconds. Otherwise an old Apple
+# device that wandered out of range still consumes connect attempts and burns
+# time we could spend on present devices.
+DEPRIORITIZED_RECENCY_S = 60
 
 ##################################################
 # Paths resolved from this file's location so the repo works from any clone path.
@@ -126,7 +149,7 @@ bgprint_log_path = str(REPO_ROOT / "Logs/GATTprint.log")
 sdpprint_log_path = str(REPO_ROOT / "Logs/SDPprint.log")
 
 sniffle_stdout_log_path = str(REPO_ROOT / "Logs/Sniffle_stdout.log")
-sniffle_path = str(REPO_ROOT / "Sniffle/python_cli/sniff_receiver.py")
+sniffle_path = str(REPO_ROOT / "Sniffle/sniffle_receiver_rust")  # Rust drop-in replacement for Sniffle/python_cli/sniff_receiver.py
 sniffle_pcap_log_folder = str(REPO_ROOT / "Logs/sniffle")
 
 # Ensure the per-tool log directories exist before workers try to write into them.
@@ -394,21 +417,77 @@ def _maybe_disable_cycling():
 #####################################################################################
 bg_dongle_queue = Queue()
 
+# Per-BG-dongle consecutive non-zero-exit counter, keyed by /dev/ttyUSBN. Reset
+# to 0 on a BG success or after a usbreset. The release path runs usbreset when
+# this hits BG_CONSECUTIVE_FAILURE_THRESHOLD on a given path, independent of the
+# elapsed-time fast-fail heuristic — Python interpreter cold-start on a Pi takes
+# several seconds, so a "fast EIO at Serial open" actually surfaces as ~5-6s of
+# wall time, indistinguishable from a normal connection failure by clock alone.
+# A pure clock heuristic missed every wedge in practice; the counter catches
+# them by their pattern instead.
+# Safe to mutate without a lock because the bg_dongle_queue serializes access:
+# only one ApplicationThread holds a given path between get() and put(), so a
+# given key has at most one writer at any moment.
+bg_dongle_consecutive_failures = {}
+BG_CONSECUTIVE_FAILURE_THRESHOLD = 3
+
+# Set of bdaddrs that currently have a BG worker running. The BLE thread's outer
+# while-loop iterates the (possibly stale) ble_bdaddrs snapshot repeatedly, and
+# when ble_bdaddrs has few entries the same bdaddr gets picked up again before
+# the previous BG worker has finished. Without this gate, MAX_BG parallel BG
+# workers would race CONNECT_IND to the same target — only one can win at a
+# time, so the losers waste their dongle slot. NYC Day-2&3 logs showed 1,718
+# bdaddrs with ≥2 BG attempts within a 5s window, worst case 6 parallel.
+bg_inflight_bdaddrs = set()
+bg_inflight_bdaddrs_lock = threading.Lock()
+# Elapsed-time fast-path. cp210x EIO at Serial open + Python interpreter cold
+# start typically completes in well under this on Pi-class hardware (observed
+# 5-6s), while real GATT runs use most or all of the 20s timeout. False
+# positives here cost only a 3s usbreset delay per BG run; a missed wedge
+# burns up to max_total_attempts BLE addresses on a dead dongle.
+BG_FAST_FAIL_S = 8.0
+
 ##################################################
 # Log print helpers
 ##################################################
 
+def tprint(msg):
+    """Thread-safe single-write equivalent of print(msg).
+
+    Built-in print() does two writes per call — the formatted text, then end='\\n'.
+    With many worker threads all printing to the same stdout (BLE/BTC/Sniffle workers
+    plus per-launch ApplicationThread instances), another thread's text can land
+    between the two writes, producing garbled lines like
+    'Released BG dongle X back to queueBLE: Acquired BG dongle Y for ...'.
+    Bundling the newline into a single write makes the line atomic against any
+    other writer that's also doing single-write emissions.
+    """
+    sys.stdout.write(msg + "\n")
+
+# Cache of (path -> open file handle) reused across calls so we don't pay an
+# open()+close() syscall pair per log line. NYC capture hit external_log_write
+# ~108k times across GATTprint.log, BTC_2THPRINT.log, SDPprint.log, and
+# Sniffle_stdout.log; pure overhead, no correctness change.
+# O_APPEND on Linux already gives atomic appends across writers, but we still
+# serialize via a lock so the cache map itself is thread-safe and the print()
+# side-channel + file write happen as one logical event.
+_external_log_files = {}
+_external_log_files_lock = threading.Lock()
+
 def external_log_write(log_path, fmt_str):
-    with open(log_path, 'a') as file:
-        try:
-            current_time = datetime.datetime.now()
-            print(f"\n{fmt_str}") # add a newline before, just preference, to make it easier to spot in the stdout log
-            file.write(f"{fmt_str}\n") # add a newline after (required to not run lines together)
-            file.flush()
-        except Exception as e:
-            print("Exception occurred:", str(e))
-            print(f"You need to determine why the {log_path} file couldn't be written, because the logs are useless without this write")
-            quit()
+    try:
+        with _external_log_files_lock:
+            f = _external_log_files.get(log_path)
+            if f is None:
+                f = open(log_path, 'a')
+                _external_log_files[log_path] = f
+            print(f"\n{fmt_str}")  # newline before, makes the marker visible in stdout
+            f.write(f"{fmt_str}\n")
+            f.flush()
+    except Exception as e:
+        print("Exception occurred:", str(e))
+        print(f"You need to determine why the {log_path} file couldn't be written, because the logs are useless without this write")
+        quit()
 
 ##################################################
 # Threading for launching background processes
@@ -444,11 +523,67 @@ class ApplicationThread(threading.Thread):
         # When set, the GATT path returns this dongle to bg_dongle_queue on exit so
         # another BLE bdaddr can claim it next.
         self.bg_dongle_path = bg_dongle_path
+        # Wall-clock at thread construction. _run_inner uses elapsed time vs this
+        # to detect "Better_Getter exited almost instantly with non-zero rc" — the
+        # cp210x EIO-on-serial-open signature — and flag the dongle for usbreset
+        # before returning it to the queue.
+        self.started_at = datetime.datetime.now()
+        self._bg_dongle_needs_usbreset = False
 
     def _release_bg_dongle(self):
+        global _last_bg_uhubctl_cycle_at
+        # Drop the in-flight marker first so a re-iteration of sorted_ble_bdaddrs
+        # can pick this bdaddr up again on its next pass. Safe to do unconditionally —
+        # discard() is a no-op for already-absent entries, e.g. non-GATT info_types
+        # (LMP2thprint / SDP / BTC_SDP_GATT / Sniffle) which never set the marker.
+        if self.info_type == "GATT" and self.bdaddr is not None:
+            with bg_inflight_bdaddrs_lock:
+                bg_inflight_bdaddrs.discard(self.bdaddr)
         if self.bg_dongle_path is not None:
+            if self._bg_dongle_needs_usbreset:
+                # EIO on serial open wedges the cp210x driver state until a USB-level
+                # reset rebinds it. Without this, the same wedged dongle would come
+                # straight back out of bg_dongle_queue on the next BLE pickup and burn
+                # through up to max_total_attempts addresses before another BG dongle
+                # happens to be the one handed out.
+                consec = bg_dongle_consecutive_failures.get(self.bg_dongle_path, 0)
+                tprint(f"BG: {self.bg_dongle_path} likely wedged ({consec} consecutive failures); running usbreset before re-queueing")
+                ok = _usbreset_dongle(self.bg_dongle_path)
+                if not ok:
+                    # usbreset failing typically means the cp210x has fully detached
+                    # from the kernel (USBDEVFS_RESET → ENODEV), beyond what driver-
+                    # level recovery can clear. Fall back to a hub power-cycle, which
+                    # forces the device to re-enumerate from scratch. Serialize across
+                    # threads + cooldown so we don't cycle the same hub repeatedly
+                    # while every dongle on it is mid-rebind from the prior cycle.
+                    with _bg_uhubctl_cycle_lock:
+                        now = time.monotonic()
+                        if now - _last_bg_uhubctl_cycle_at < UHUBCTL_BG_COOLDOWN_S:
+                            tprint(f"BG: usbreset of {self.bg_dongle_path} failed; skipping uhubctl (cooldown active, {now - _last_bg_uhubctl_cycle_at:.0f}s since last cycle)")
+                        else:
+                            tprint(f"BG: usbreset of {self.bg_dongle_path} failed; falling back to uhubctl power-cycle (will also bounce other dongles on the hub)")
+                            # Set the timestamp BEFORE the cycle so concurrent
+                            # ApplicationThread releases see the cooldown window
+                            # immediately and don't pile on with their own cycles.
+                            _last_bg_uhubctl_cycle_at = now
+                            cycled = _uhubctl_cycle_for_tty(self.bg_dongle_path)
+                            if cycled:
+                                # The cycle just bounced every cp210x on the hub —
+                                # any failures their threads racked up before the
+                                # cycle are stale. Reset all counters so we don't
+                                # immediately re-flag them on their next pickup.
+                                for k in list(bg_dongle_consecutive_failures.keys()):
+                                    bg_dongle_consecutive_failures[k] = 0
+                            else:
+                                # Cycle didn't actually happen (no PPPS ancestor,
+                                # uhubctl missing, etc.). Don't hold the cooldown
+                                # against future genuine attempts.
+                                _last_bg_uhubctl_cycle_at = 0.0
+                # Whether the recovery succeeded or not, clear THIS dongle's counter —
+                # we tried what we could and shouldn't re-flag on the very next exit.
+                bg_dongle_consecutive_failures[self.bg_dongle_path] = 0
             bg_dongle_queue.put(self.bg_dongle_path)
-            if(print_verbose): print(f"Released BG dongle {self.bg_dongle_path} back to queue")
+            if(print_verbose): tprint(f"Released BG dongle {self.bg_dongle_path} back to queue")
 
     def run(self):
         try:
@@ -468,6 +603,12 @@ class ApplicationThread(threading.Thread):
                 if(retCode == 0): #Success!
                     if(self.info_type == "GATT"):
                        external_log_write(bgprint_log_path, f"BETTERGETTER SUCCESS FOR: {self.bdaddr} {datetime.datetime.now()}")
+                       # A successful BG run on this dongle proves it isn't wedged.
+                       # Reset the consecutive-failure counter so a long-stable
+                       # dongle isn't forced through usbreset because of failures
+                       # that happened earlier in the session.
+                       if self.bg_dongle_path is not None:
+                           bg_dongle_consecutive_failures[self.bg_dongle_path] = 0
                        with gatt_success_bdaddrs_lock:
                            gatt_success_bdaddrs[self.bdaddr] = 1
                            # Should only remove from ble_bdaddrs if all BLE-type prints are done
@@ -504,6 +645,19 @@ class ApplicationThread(threading.Thread):
                 else:
                     if(self.info_type == "GATT"):
                        external_log_write(bgprint_log_path, f"BETTERGETTER FAILURE 0x{retCode:02x} FOR: {self.bdaddr} {datetime.datetime.now()}")
+                       # Two independent triggers for usbreset, ORed together:
+                       #   * elapsed_s < BG_FAST_FAIL_S — fast exit pattern, suggestive of
+                       #     EIO at Serial open before any BLE work; observed Pi clock
+                       #     time for that case is ~5-6s due to interpreter cold start.
+                       #   * consecutive >= BG_CONSECUTIVE_FAILURE_THRESHOLD — repeated
+                       #     non-zero exits on the same dongle regardless of timing,
+                       #     covering wedges that don't fit the fast-fail signature.
+                       if self.bg_dongle_path is not None:
+                           elapsed_s = (datetime.datetime.now() - self.started_at).total_seconds()
+                           consecutive = bg_dongle_consecutive_failures.get(self.bg_dongle_path, 0) + 1
+                           bg_dongle_consecutive_failures[self.bg_dongle_path] = consecutive
+                           if elapsed_s < BG_FAST_FAIL_S or consecutive >= BG_CONSECUTIVE_FAILURE_THRESHOLD:
+                               self._bg_dongle_needs_usbreset = True
                     elif(self.info_type == "LMP2thprint"):
                        external_log_write(btc2thprint_log_path, f"BTC_2THPRINT: FAILURE 0x{retCode:02x} FOR: {self.bdaddr} {datetime.datetime.now()}")
                     elif(self.info_type == "SDP"):
@@ -512,6 +666,21 @@ class ApplicationThread(threading.Thread):
                        external_log_write(sdpprint_log_path, f"BTC_SDP_GATT FAILURE 0x{retCode:02x} FOR: {self.bdaddr} {datetime.datetime.now()}")
                     elif(self.info_type == "Sniffle"):
                        external_log_write(sniffle_stdout_log_path, f"SNIFFLE LAUNCH FAILURE 0x{retCode:02x} FOR: {self.launch_cmd} {datetime.datetime.now()}")
+                       # Release the port so the sniffle worker can relaunch.
+                       # Without this the failed port would stay marked as
+                       # in-use (pid of the dead process) for the whole
+                       # launcher run — the 2026-05-04 bug. Flag for
+                       # usbreset too: a non-zero exit from sniff_receiver
+                       # right after launch is dominantly EIO on serial open
+                       # (Errno 5), which the cp210x clears via a USB reset.
+                       key = next((k for k, v in serial_port_status.items() if v == self.process.pid), None)
+                       if key is not None:
+                           with sniffle_state_lock:
+                               serial_port_needs_usb_reset[key] = True
+                               serial_port_pcap_last_seen.pop(key, None)
+                           serial_port_status[key] = 0
+                           with start_sniffle_threads_condition:
+                               start_sniffle_threads_condition.notify()
 
             self.is_terminated = True
         except TimeoutExpired:
@@ -522,6 +691,16 @@ class ApplicationThread(threading.Thread):
             self.is_terminated = True
             if(self.info_type == "GATT"):
                external_log_write(bgprint_log_path, f"BETTERGETTER FAILURE TIMEOUT FOR: {self.bdaddr} {datetime.datetime.now()}")
+               # Timeouts count toward the consecutive-failure threshold too —
+               # the dongle was held for the full timeout and produced nothing,
+               # which is itself a wedge symptom on a long enough streak.
+               # Don't trigger the fast-fail leg here (a timeout is by
+               # definition not fast).
+               if self.bg_dongle_path is not None:
+                   consecutive = bg_dongle_consecutive_failures.get(self.bg_dongle_path, 0) + 1
+                   bg_dongle_consecutive_failures[self.bg_dongle_path] = consecutive
+                   if consecutive >= BG_CONSECUTIVE_FAILURE_THRESHOLD:
+                       self._bg_dongle_needs_usbreset = True
             elif(self.info_type == "LMP2thprint"):
                external_log_write(btc2thprint_log_path, f"BTC_2THPRINT: FAILURE TIMEOUT FOR: {self.bdaddr} {datetime.datetime.now()}")
             elif(self.info_type == "SDP"):
@@ -1120,7 +1299,7 @@ def _maybe_deprioritize_by_signature(bdaddr, kind, props):
 
 def _device_added(path, props):
     """Handle a newly-discovered device. props is the org.bluez.Device1 a{sv} dict."""
-    global device_connect_attempts
+    global device_connect_attempts, device_total_attempts
     bdaddr = _address(props)
     if bdaddr is None:
         return
@@ -1128,6 +1307,8 @@ def _device_added(path, props):
     atype = _addr_type(props)
     rssi = _rssi(props)
     device_connect_attempts[bdaddr] = 0  # reset attempt counter on (re)appearance
+    device_total_attempts.setdefault(bdaddr, 0)  # cumulative; intentionally NOT reset on re-appearance
+    device_last_seen[bdaddr] = datetime.datetime.now()
     # BlueZ can re-emit InterfacesAdded for the same device with different Device1
     # property sets — e.g., a dual-mode device whose first advertisement was a BR/EDR
     # inquiry response (Class present → BTC) and whose later LE advertisement omits
@@ -1171,11 +1352,38 @@ def _device_removed(path):
 
 def _device_props_changed(path, changed):
     """Handle RSSI / ManufacturerData updates on an existing Device1."""
-    global device_connect_attempts
+    global device_connect_attempts, device_total_attempts
     suffix = path.rsplit("/", 1)[-1]
     if not suffix.startswith("dev_"):
         return
     bdaddr = suffix[4:].replace("_", ":").lower()
+    # Any PropertiesChanged for a device path means we just heard from the device
+    # (BlueZ fires this for every advert seen with DuplicateData=true).
+    device_last_seen[bdaddr] = datetime.datetime.now()
+
+    # BLE->BTC promotion. BlueZ fires PropertiesChanged (not InterfacesAdded) when
+    # an existing Device1 gains its Class property — i.e., when a dual-mode device
+    # whose first advert was an LE-only adv (no Class) later sends a BR/EDR inquiry
+    # response. Without this promotion, such devices stay stuck in ble_bdaddrs (or
+    # ble_deprioritized_bdaddrs if they have Apple ManufacturerData) and the BTC
+    # worker never sees them. Done before the RSSI/ManufacturerData handlers below
+    # so the subsequent RSSI update lands in btc_bdaddrs.
+    if "Class" in changed:
+        promoted_state = None  # (atype, rssi) if promotion happens
+        with ble_bdaddrs_lock:
+            if bdaddr in ble_bdaddrs:
+                promoted_state = ble_bdaddrs.pop(bdaddr)
+        if promoted_state is None:
+            with ble_deprioritized_bdaddrs_lock:
+                if bdaddr in ble_deprioritized_bdaddrs:
+                    (atype, rssi, _vendor) = ble_deprioritized_bdaddrs.pop(bdaddr)
+                    promoted_state = (atype, rssi)
+        if promoted_state is not None:
+            with btc_bdaddrs_lock:
+                btc_bdaddrs[bdaddr] = promoted_state
+            device_connect_attempts[bdaddr] = 0
+            device_total_attempts.setdefault(bdaddr, 0)
+            if(BTC_thread_enabled): print(f"[PROMOTE BLE->BTC] {bdaddr} (atype={promoted_state[0]}, rssi={promoted_state[1]})")
 
     # RSSI update
     if "RSSI" in changed:
@@ -1194,7 +1402,7 @@ def _device_props_changed(path, changed):
                         print(f"Higher RSSI observed. Decrementing device_connect_attempts {bdaddr} to {device_connect_attempts[bdaddr]-1}")
                         device_connect_attempts[bdaddr] -= 1
                     ble_bdaddrs[bdaddr] = (atype, new_rssi)
-                    if(BLE_thread_enabled and print_verbose): print(f"Updated BLE RSSI ({new_rssi}) for {bdaddr}")
+                    if(BLE_thread_enabled and print_rssi_updates): print(f"Updated BLE RSSI ({new_rssi}) for {bdaddr}")
             with btc_bdaddrs_lock:
                 if bdaddr in btc_bdaddrs:
                     (atype, old_rssi) = btc_bdaddrs[bdaddr]
@@ -1202,7 +1410,7 @@ def _device_props_changed(path, changed):
                         print(f"Higher RSSI observed. Decrementing device_connect_attempts {bdaddr} to {device_connect_attempts[bdaddr]-1}")
                         device_connect_attempts[bdaddr] -= 1
                     btc_bdaddrs[bdaddr] = (atype, new_rssi)
-                    if(BTC_thread_enabled and print_verbose): print(f"Updated BTC RSSI ({new_rssi}) for {bdaddr}")
+                    if(BTC_thread_enabled and print_rssi_updates): print(f"Updated BTC RSSI ({new_rssi}) for {bdaddr}")
 
     # ManufacturerData update — may arrive after the initial InterfacesAdded.
     if "ManufacturerData" in changed:
@@ -1282,34 +1490,62 @@ async def _restart_discovery_after_cycle(bus):
         # Block in a thread until the BTC worker signals a cycle finished.
         await loop.run_in_executor(None, _realtek_cycle_pending.wait)
         _realtek_cycle_pending.clear()
-        # Give bluetoothd a moment to register the new (possibly renumbered) adapter.
-        await asyncio.sleep(3)
+        # bluetoothd registers /org/bluez/hciN's Adapter1 interface a few
+        # seconds AFTER find_realtek_hci() succeeds at the kernel level. A
+        # fixed-3s sleep racey the registration ~55% of the time in the NYC
+        # capture, with no retry — discovery was silently lost after every
+        # other power cycle until the next cycle woke this coroutine again.
+        # Retry with backoff (~26s total) before giving up; a subsequent
+        # cycle's wakeup re-runs the loop and gets another shot.
         adapter_path = get_realtek_dbus_path()
-        try:
-            adapter = await _resolve_adapter(bus, adapter_path)
-            await adapter.call_set_discovery_filter({
-                "Transport": Variant("s", "auto"),
-                "DuplicateData": Variant("b", True),
-            })
-            await adapter.call_start_discovery()
-            print(f"_restart_discovery_after_cycle: StartDiscovery reissued on {adapter_path} at {datetime.datetime.now()}")
-        except Exception as e:
-            print(f"_restart_discovery_after_cycle: failed to restart discovery on {adapter_path}: {e}")
+        last_err = None
+        for delay in (3, 2, 3, 5, 5, 8):
+            await asyncio.sleep(delay)
+            try:
+                adapter = await _resolve_adapter(bus, adapter_path)
+                await adapter.call_set_discovery_filter({
+                    "Transport": Variant("s", "auto"),
+                    "DuplicateData": Variant("b", True),
+                })
+                await adapter.call_start_discovery()
+                print(f"_restart_discovery_after_cycle: StartDiscovery reissued on {adapter_path} at {datetime.datetime.now()}")
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                # Re-read the path each retry in case the cycle renumbered
+                # the hci between attempts (rare but observed).
+                adapter_path = get_realtek_dbus_path()
+        if last_err is not None:
+            print(f"_restart_discovery_after_cycle: gave up reissuing on {adapter_path} after ~26s; last error: {last_err}")
 
 
 async def dbus_discovery_loop():
     """Run BlueZ D-Bus discovery forever. Replaces the bluetoothctl-log inotify loop."""
     bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
 
-    # Retry-resolve the Realtek hci in case it wasn't enumerated at module load.
-    # bluetoothd can also lag a few seconds behind kernel hci registration.
-    for attempt in range(30):
+    # Retry-resolve the Realtek hci. bluetoothd can lag a few seconds behind
+    # kernel hci registration, and a freshly power-cycled dongle may take
+    # 20–60s to re-enumerate. We poll indefinitely (with progressively quieter
+    # warnings) rather than time out into a fallback adapter, because falling
+    # through to the module-load default of /org/bluez/hci0 silently runs
+    # discovery on the Pi's built-in Cypress instead of the Realtek — observed
+    # in the 2026-05-07 23:43 NYC capture, where it masked an absent Realtek
+    # for 70 minutes until the next launcher restart.
+    attempt = 0
+    while True:
         hci, path = find_realtek_hci()
         if path:
             update_realtek_dbus_path(path)
             break
         if attempt == 0:
             print(f"dbus_discovery_loop: waiting for Realtek dongle ({REALTEK_BDADDR_SENTINEL}) to appear...")
+        elif attempt % 30 == 0:  # every 60s
+            print(f"dbus_discovery_loop: STILL waiting for Realtek dongle "
+                  f"({REALTEK_BDADDR_SENTINEL}) after {attempt * 2}s — refusing to "
+                  f"start discovery on a fallback adapter; check the dongle, USB hub, "
+                  f"and DarkFirmware_real_i firmware load")
+        attempt += 1
         await asyncio.sleep(2)
     adapter_path = get_realtek_dbus_path()
     adapter = await _resolve_adapter(bus, adapter_path)
@@ -1389,7 +1625,7 @@ def reprioritize_btc_bdaddr(bdaddr):
 
 # Function for the first thread
 def ble_thread_function():
-    global device_connect_attempts
+    global device_connect_attempts, device_total_attempts
     ble_external_tool_threads = []
     while True:
         # Get the BDADDRs sorted in descending order of their RSSI, so we process higher RSSI first.
@@ -1401,7 +1637,6 @@ def ble_thread_function():
         if(print_verbose):
             print(f"Begin loop through sorted_ble_bdaddrs {datetime.datetime.now()}")
             print(f"sorted_ble_bdaddrs = {sorted_ble_bdaddrs}")
-            print(f"ble_deprioritized_bdaddrs = {ble_deprioritized_bdaddrs}")
 
         skip_count = int(0)
         for bdaddr in sorted_ble_bdaddrs:
@@ -1409,9 +1644,13 @@ def ble_thread_function():
             # Only try collecting data from a given bd_addr max_connect_attempts times before skipping forever thereafter
             # This is so that we don't waste time trying to get info from something that will never give it to us,
             # when we could be spending that time trying new devices
-            if((str(bdaddr).lower() in skip_these_addresses) or (device_connect_attempts[bdaddr] >= max_connect_attempts)):
+            total_for_addr = device_total_attempts.get(bdaddr, 0)
+            if((str(bdaddr).lower() in skip_these_addresses) or (device_connect_attempts[bdaddr] >= max_connect_attempts) or (total_for_addr >= max_total_attempts)):
                 if(print_skipped):
-                    print(f"BLE: Max connect attempts exceeded for {bdaddr}, skipping")
+                    if total_for_addr >= max_total_attempts:
+                        print(f"BLE: Total attempts cap reached for {bdaddr} ({total_for_addr}/{max_total_attempts}), skipping")
+                    else:
+                        print(f"BLE: Max connect attempts exceeded for {bdaddr}, skipping")
                 skip_count += 1
                 if(print_skipped):
                     print(f"BLE: skip_count = {skip_count} of {len(sorted_ble_bdaddrs)}")
@@ -1421,14 +1660,26 @@ def ble_thread_function():
 
                 if(skip_count == len(sorted_ble_bdaddrs) and len(ble_deprioritized_bdaddrs) > 0):
                     print("BLE: Everything's being skipped. We could go ahead and do some deprioritized bdaddrs now...")
-                    print(ble_deprioritized_bdaddrs)
-                    bdaddr = list(ble_deprioritized_bdaddrs.keys())[0] # Grab a single bdaddr
-                    reprioritize_ble_bdaddr(bdaddr)
-                    print(ble_deprioritized_bdaddrs)
+                    # Only fall back onto deprioritized bdaddrs that we've still been
+                    # hearing adverts from in the last DEPRIORITIZED_RECENCY_S seconds.
+                    # Old entries (e.g., an Apple device that wandered out of range and
+                    # never got [DEL]'d because BlueZ kept it around) would otherwise
+                    # consume connect attempts on devices that aren't even present.
+                    cutoff = datetime.datetime.now() - datetime.timedelta(seconds=DEPRIORITIZED_RECENCY_S)
+                    with ble_deprioritized_bdaddrs_lock:
+                        recent_candidates = [b for b in ble_deprioritized_bdaddrs
+                                             if device_last_seen.get(b, datetime.datetime.min) >= cutoff]
+                    if recent_candidates:
+                        bdaddr = recent_candidates[0]
+                        print(f"BLE: Reprioritizing {bdaddr} (recently heard; {len(recent_candidates)} of {len(ble_deprioritized_bdaddrs)} deprioritized still active)")
+                        reprioritize_ble_bdaddr(bdaddr)
+                    else:
+                        print(f"BLE: No deprioritized bdaddrs heard in last {DEPRIORITIZED_RECENCY_S}s; nothing to reprioritize")
 
                 continue
             else:
                 device_connect_attempts[bdaddr] += 1
+                device_total_attempts[bdaddr] = total_for_addr + 1
 
             if(print_verbose): print(f"BLE Address: {bdaddr}")
 
@@ -1450,8 +1701,30 @@ def ble_thread_function():
                     # are already running a Better_Getter.py process, which gives us natural
                     # round-robin distribution across the BG pool (Queue is FIFO).
                     bg_dongle_path = bg_dongle_queue.get()
-                    if(print_verbose): print(f"BLE: Acquired BG dongle {bg_dongle_path} for {bdaddr}")
+                    if(print_verbose): tprint(f"BLE: Acquired BG dongle {bg_dongle_path} for {bdaddr}")
 
+                    # Single-attempt-per-bdaddr gate. If another worker is already
+                    # running a BG against this bdaddr (which happens when the outer
+                    # while-loop re-iterates a small ble_bdaddrs while the previous
+                    # BG is still in flight), release the dongle and move on. Without
+                    # this gate the NYC capture observed up to 6 parallel BG inits on
+                    # one target — only one can win the CONNECT_IND race, the rest
+                    # tie up dongles. ApplicationThread._release_bg_dongle clears
+                    # the bdaddr from the set on completion.
+                    with bg_inflight_bdaddrs_lock:
+                        already_running = bdaddr in bg_inflight_bdaddrs
+                        if not already_running:
+                            bg_inflight_bdaddrs.add(bdaddr)
+                    if already_running:
+                        if(print_verbose): tprint(f"BLE: BG worker already in flight for {bdaddr}; releasing {bg_dongle_path}")
+                        bg_dongle_queue.put(bg_dongle_path)
+                        continue
+
+                    # Pre-initialize so that if open(sniffle_append_stdout) below
+                    # raises before launch_application returns, the gatt_process
+                    # check at line ~1450 sees None rather than a stale Popen
+                    # handle from a previous loop iteration.
+                    gatt_process = None
                     launched_thread = None
                     with ble_bdaddrs_lock:
                         if(bdaddr in ble_bdaddrs):
@@ -1466,6 +1739,9 @@ def ble_thread_function():
                                 gatt_cmd = ["python3", "-u", BG_exec_path, "-q", serial_port, pcap_output, f"-b={bdaddr}", "-P", "-2"]
                             else:
                                 gatt_cmd = ["python3", "-u", BG_exec_path, "-q", serial_port, pcap_output, f"-b={bdaddr}", "-2"]
+                            # Skip-apple: BG will early-exit (rc 0x0A) on confirmed Apple devices.
+                            if(better_getter_skip_apple):
+                                gatt_cmd.append("-A")
                             try:
                                 if(sniffle_stdout_logging):
                                     sniffle_append_stdout = open(f"{BG_output_pcap_path}/Sniffle_stdout.log", "a")
@@ -1493,9 +1769,12 @@ def ble_thread_function():
 
                     # If we never started a thread (race with [DEL] removed bdaddr, or Popen
                     # failed silently), the dongle would otherwise be lost from the pool — return it.
+                    # Also drop the in-flight marker since no worker exists to clear it later.
                     if(launched_thread is None):
+                        with bg_inflight_bdaddrs_lock:
+                            bg_inflight_bdaddrs.discard(bdaddr)
                         bg_dongle_queue.put(bg_dongle_path)
-                        if(print_verbose): print(f"BLE: No GATT thread started for {bdaddr}; returned BG dongle {bg_dongle_path} to queue")
+                        if(print_verbose): tprint(f"BLE: No GATT thread started for {bdaddr}; returned BG dongle {bg_dongle_path} to queue")
 
             # Reap any finished threads to bound memory growth, but do NOT block on running ones —
             # the bg_dongle_queue handles back-pressure (BLE thread blocks on queue.get() when all
@@ -1520,7 +1799,7 @@ def ble_thread_function():
 
 # Function for the second thread
 def btc_thread_function():
-    global device_connect_attempts
+    global device_connect_attempts, device_total_attempts
     btc_external_tool_threads = []
     while True:
         # Get the BDADDRs sorted in descending order of their RSSI, so we process higher RSSI first.
@@ -1540,9 +1819,13 @@ def btc_thread_function():
             # Only try collecting data from a given bd_addr max_connect_attempts times before skipping forever thereafter
             # This is so that we don't waste time trying to get info from something that will never give it to us,
             # when we could be spending that time trying new devices
-            if((str(bdaddr).lower() in skip_these_addresses) or (device_connect_attempts[bdaddr] >= max_connect_attempts)):
+            total_for_addr = device_total_attempts.get(bdaddr, 0)
+            if((str(bdaddr).lower() in skip_these_addresses) or (device_connect_attempts[bdaddr] >= max_connect_attempts) or (total_for_addr >= max_total_attempts)):
                 if(print_skipped):
-                    print(f"BTC: Max connect attempts exceeded for {bdaddr}, skipping")
+                    if total_for_addr >= max_total_attempts:
+                        print(f"BTC: Total attempts cap reached for {bdaddr} ({total_for_addr}/{max_total_attempts}), skipping")
+                    else:
+                        print(f"BTC: Max connect attempts exceeded for {bdaddr}, skipping")
                 skip_count += 1
                 if(print_skipped):
                     print(f"BTC: skip_count = {skip_count} of {len(sorted_btc_bdaddrs)}")
@@ -1559,6 +1842,14 @@ def btc_thread_function():
                 continue
             else:
                 device_connect_attempts[bdaddr] += 1
+                device_total_attempts[bdaddr] = total_for_addr + 1
+
+            # Track the LMP thread (if launched) so we can wait for it to finish
+            # before the SDP path opens an L2CAP socket to the same target. Both
+            # paths go through the same Realtek HCI adapter and would otherwise
+            # race the same ACL link setup — observed 482 "Failed to create
+            # connection: I/O error" + 445 SDP EBUSY events in the NYC capture.
+            lmp_thread_to_join = None
 
             if(lmp2thprint_enabled):
                 skip_sub_process = False
@@ -1588,6 +1879,7 @@ def btc_thread_function():
                     # The launcher already runs as root (via setup_capture_helper_debian-based.sh's
                     # @reboot cron entry under root), so we don't prefix with sudo.
                     btc_2thprint_cmd = [darkfirmware_lmp_path, f"--target={bdaddr}"]
+                    btc_2thprint_process = None
                     try:
                         btc_2thprint_process = launch_application(btc_2thprint_cmd, default_cwd)
                     except BlockingIOError as e:
@@ -1603,10 +1895,18 @@ def btc_thread_function():
                         try:
                             btc_2thprint_thread.start()
                             btc_external_tool_threads.append(btc_2thprint_thread)
+                            lmp_thread_to_join = btc_2thprint_thread
                         except Exception as e:
                             print(f"Caught an exception while starting LMP2thprint thread: {e}")
                             # This doesn't seem to ever resolve itself for hours after it eventually occurs (which takes about 5 hours). So I need to just reboot to resolve it
                             force_reboot()
+
+            # Wait for the LMP probe to finish before we open an L2CAP/SDP socket
+            # to the same bdaddr on the same Realtek. The cross-tool collisions
+            # (l2cap_connect EIO + SDP EBUSY in 927 NYC events) were caused by
+            # the previous concurrent launch.
+            if lmp_thread_to_join is not None:
+                lmp_thread_to_join.join()
 
             # SDP path: prefer btc_sdp_gatt.py (richer output, also does GATT-over-BR/EDR)
             # over the legacy sdptool. Both feed sdp_success_bdaddrs, so all_2thprints_done()
@@ -1627,7 +1927,13 @@ def btc_thread_function():
                     # btc_sdp_gatt.py self-resolves Analysis/ for its TME imports, and
                     # TME_BTIDES_base resolves BTIDES_Schema/ relative to its own file,
                     # so the launcher's CWD doesn't matter.
-                    btc_sdp_gatt_cmd = ["python3", "-u", btc_sdp_gatt_path, f"--bdaddr={bdaddr}", "--quiet-print"]
+                    # --no-interactive-pairing makes the agent reject Passkey Entry,
+                    # Numeric Comparison, and legacy PIN flows immediately rather
+                    # than blocking on input() — there's no human at this terminal
+                    # to type a passkey. Just Works pairings still complete.
+                    btc_sdp_gatt_cmd = ["python3", "-u", btc_sdp_gatt_path,
+                                        f"--bdaddr={bdaddr}", "--quiet-print",
+                                        "--no-interactive-pairing"]
                     try:
                         btc_sdp_gatt_process = launch_application(btc_sdp_gatt_cmd, default_cwd)
                     except BlockingIOError as e:
@@ -1659,6 +1965,14 @@ def btc_thread_function():
 
                 if(not skip_sub_process and bdaddr in btc_bdaddrs): # Double check that bdaddr hasn't been deleted out of btc_bdaddrs by a [DEL]
                     external_log_write(sdpprint_log_path, f"SDPPRINTING ATTEMPT FOR: {bdaddr} {datetime.datetime.now()}")
+                    # Defense in depth: the module-level os.makedirs(sdptool_log_path)
+                    # above already runs at import time, but Logs/sdptool/.gitkeep was
+                    # deleted in master commit e28726e — so a checkout of master that
+                    # doesn't include the module-level guard (or a worker that races
+                    # with someone deleting the directory) would otherwise crash here
+                    # with FileNotFoundError. exist_ok=True makes this a no-op when
+                    # the directory already exists, which is the common case.
+                    os.makedirs(sdptool_log_path, exist_ok=True)
                     output_file = open(f"{sdptool_log_path}/{bdaddr}_sdp.xml", "a") # redirect stdout to an output XML file
                     sdpprint_cmd = [sdptool_exec_path, "browse", "--xml", bdaddr]
                     try:
@@ -1708,6 +2022,31 @@ serial_port_status = {}
 serial_port_role = {}
 start_sniffle_threads_condition = threading.Condition()
 
+# Sniffle wedge-recovery state. Reaches an EIO-on-open wedge when the cp210x
+# bridge / Sonoff firmware locks up; observed in the 2026-05-04 14:37 incident
+# where ttyUSB2 + ttyUSB3 both started returning [Errno 5] on serial open and
+# stayed unrecoverable until reboot. Two-prong fix:
+#
+#   * Stall detector kills a running sniffer whose pcap file hasn't grown for
+#     SNIFFLE_STALL_THRESHOLD_S so we catch the wedge *before* it progresses
+#     to the hard EIO state. The kill triggers the standard relaunch path,
+#     which then notices needs_usb_reset and recovers.
+#
+#   * needs_usb_reset[port] is set whenever a sniffler exits non-zero (likely
+#     EIO) or the stall detector kills one. The sniffle worker consumes the
+#     flag by running usbreset against the underlying USB device before the
+#     next launch attempt; that issues USBDEVFS_RESET, which preserves the
+#     device address (so /dev/ttyUSBN stays valid) and clears the cp210x
+#     state in practice.
+SNIFFLE_STALL_THRESHOLD_S = 300       # 5 min of zero pcap growth -> wedge
+SNIFFLE_STALL_CHECK_PERIOD_S = 60     # how often the detector polls
+SNIFFLE_FRESH_LAUNCH_GRACE_S = 60     # don't accuse a sniffer of stalling in its first minute
+serial_port_needs_usb_reset = {}      # path -> bool
+serial_port_pcap_path = {}            # path -> currently-writing pcap path
+serial_port_pcap_last_seen = {}       # path -> (size, time.monotonic())
+serial_port_launch_time = {}          # path -> time.monotonic() of most recent successful Popen
+sniffle_state_lock = threading.Lock()
+
 
 def assign_sniffle_roles(dongles):
     """Distribute roles across Sniffle dongles per issue #26.
@@ -1748,7 +2087,7 @@ def assign_sniffle_roles(dongles):
 def build_sniffle_cmd(dongle_path, role, launch_time, short_name, host):
     """Translate a (mode, channel) role tuple into a sniffle CLI invocation."""
     mode, channel = role
-    cmd = ["python3", sniffle_path]
+    cmd = [sniffle_path]  # native binary, no python3 wrapper
     label_parts = []
     if mode == 'scan':
         cmd.append("-A")
@@ -1769,10 +2108,241 @@ def build_sniffle_cmd(dongle_path, role, launch_time, short_name, host):
 # The Sniffle worker doesn't start until that's done, so it never sees an empty role map.
 
 
+def _usbreset_dongle(tty_path):
+    """Send a USB-level reset (USBDEVFS_RESET) to the device backing
+    /dev/ttyUSBN. Used to clear the cp210x EIO wedge documented in the
+    2026-05-04 incident.
+
+    Resolves /dev/ttyUSBN -> /sys/class/tty/ttyUSBN/device (the USB interface
+    sysfs path) -> parent dir (the USB device) -> busnum + devnum ->
+    /dev/bus/usb/BBB/DDD, then exec()s `usbreset` against it. Returns True
+    on a successful reset, False otherwise. The kernel preserves the device
+    address through USBDEVFS_RESET so /dev/ttyUSBN stays valid; the cp210x
+    driver unbinds + rebinds, which clears its error state.
+    """
+    short_name = os.path.basename(tty_path)  # e.g. ttyUSB2
+    sysfs_iface = f"/sys/class/tty/{short_name}/device"
+    if not os.path.exists(sysfs_iface):
+        print(f"_usbreset_dongle: {sysfs_iface} not present; can't reset {tty_path}")
+        return False
+    # The kernel layout for cp210x has varied across versions:
+    #   * older: /sys/class/tty/ttyUSBN/device -> .../1-1.1.3.2:1.0  (interface dir)
+    #     → device dir is one parent up
+    #   * newer (Pi kernel 6.12.x observed): -> .../1-1.1.3.2:1.0/ttyUSBN  (a child
+    #     subdir of the interface) → device dir is two parents up
+    # busnum + devnum live at the device dir, not the interface. Walk upward from
+    # the realpath until we find a dir containing both files; cap at 6 hops to
+    # avoid runaway when the symlink chain is broken.
+    real = os.path.realpath(sysfs_iface)
+    usb_device_dir = None
+    cur = real
+    for _ in range(6):
+        if (os.path.exists(os.path.join(cur, "busnum"))
+                and os.path.exists(os.path.join(cur, "devnum"))):
+            usb_device_dir = cur
+            break
+        parent = os.path.dirname(cur)
+        if parent == cur:  # reached /
+            break
+        cur = parent
+    if usb_device_dir is None:
+        print(f"_usbreset_dongle: could not locate busnum/devnum for {tty_path} starting from {real}")
+        return False
+    try:
+        with open(os.path.join(usb_device_dir, "busnum")) as f:
+            busnum = int(f.read().strip())
+        with open(os.path.join(usb_device_dir, "devnum")) as f:
+            devnum = int(f.read().strip())
+    except (FileNotFoundError, ValueError) as e:
+        print(f"_usbreset_dongle: failed to read busnum/devnum for {tty_path}: {e}")
+        return False
+    # usbutils' usbreset accepts "BBB/DDD" (decimal bus/dev, no /dev/bus/usb/
+    # prefix), "VVVV:PPPP", "SN:SERIAL", or "Product"-name. A bare path like
+    # /dev/bus/usb/001/008 falls through to the product-name branch and exits
+    # with "No such device found" — observed 35,570 times in the NYC Day-2&3
+    # capture before this fix, with a 0% success rate.
+    bus_dev_arg = f"{busnum:03d}/{devnum:03d}"
+    bus_path = f"/dev/bus/usb/{bus_dev_arg}"  # display-only
+    print(f"_usbreset_dongle: running usbreset {bus_dev_arg} for {tty_path} ({bus_path})")
+    try:
+        result = subprocess.run(
+            ["usbreset", bus_dev_arg],
+            timeout=10, capture_output=True, text=True,
+        )
+    except FileNotFoundError:
+        print("_usbreset_dongle: 'usbreset' binary not found on PATH; "
+              "install it (apt install usbutils) or skip recovery.")
+        return False
+    except subprocess.TimeoutExpired:
+        print(f"_usbreset_dongle: usbreset {bus_dev_arg} timed out after 10s")
+        return False
+    if result.returncode != 0:
+        print(f"_usbreset_dongle: usbreset {bus_dev_arg} returned {result.returncode} "
+              f"(stdout={result.stdout!r} stderr={result.stderr!r})")
+        return False
+    # Wait briefly for udev to re-fire the cp210x bind + re-create the
+    # /dev/serial/by-id/... symlink before the caller relaunches sniff_receiver.
+    time.sleep(3)
+    print(f"_usbreset_dongle: usbreset {bus_dev_arg} OK")
+    return True
+
+
+# Serializes uhubctl-based recovery so concurrent ApplicationThread releases
+# don't each try to cycle the same hub. Combined with _last_bg_uhubctl_cycle_at,
+# this gives us "exactly one cycle per cooldown window" semantics across threads.
+_bg_uhubctl_cycle_lock = threading.Lock()
+_last_bg_uhubctl_cycle_at = 0.0
+# Don't re-cycle within this many seconds of a previous cycle. After a hub-wide
+# power-off + power-on, every dongle on the (ganged) hub is mid-rebind and any
+# BG launches against them WILL fail-fast with EIO/ENOENT — that's expected,
+# not a fresh wedge. The cooldown prevents the cascade of re-cycles that would
+# otherwise lock the hub in continuous reset.
+UHUBCTL_BG_COOLDOWN_S = 60.0
+
+
+def _sysfs_id_from_tty(tty_path):
+    """Return the USB sysfs device id (e.g. '1-1.2.3.4') for /dev/ttyUSBN, or
+    None if the device isn't present or the realpath chain doesn't expose a
+    standard USB device dir. Walks up the tty's `device` symlink target until
+    it hits a basename that looks like a USB device id (dots, no colon)."""
+    short_name = os.path.basename(tty_path)
+    sysfs_iface = f"/sys/class/tty/{short_name}/device"
+    if not os.path.exists(sysfs_iface):
+        return None
+    cur = os.path.realpath(sysfs_iface)
+    for _ in range(8):
+        base = os.path.basename(cur)
+        # USB device dirs look like '1-1.2.3.4'. Interface dirs have ':' (e.g.
+        # '1-1.2.3.4:1.0'). The leaf may also be a tty subdir like 'ttyUSB6'.
+        if "." in base and ":" not in base and "-" in base:
+            return base
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return None
+        cur = parent
+    return None
+
+
+def _uhubctl_cycle_for_tty(tty_path):
+    """Power-cycle the closest PPPS-capable hub-port whose subtree contains
+    /dev/ttyUSBN. Walks up the USB topology from the dongle's immediate parent
+    looking for a hub uhubctl can drive.
+
+    No safety check on the subtree — on ganged hubs this also bounces every
+    other device on the same hub. That tradeoff is intentional: the only
+    software recovery for a deeper-than-driver wedge (cp210x ETIMEDOUT +
+    USBDEVFS_RESET ENODEV) is power loss, and the user has explicitly accepted
+    ganged collateral damage in exchange for getting the dongle back at all.
+    The bounced neighbors get a forced "preventative reset" out of the deal.
+
+    Caller must hold _bg_uhubctl_cycle_lock and update _last_bg_uhubctl_cycle_at
+    around this call so concurrent BG ApplicationThread releases don't each
+    issue their own cycle for the same hub.
+
+    Returns True on a successful cycle, False otherwise.
+    """
+    sysfs_id = _sysfs_id_from_tty(tty_path)
+    if sysfs_id is None:
+        print(f"_uhubctl_cycle_for_tty: could not determine USB sysfs id for {tty_path}")
+        return False
+    parts = sysfs_id.split(".")
+    if len(parts) < 2:
+        print(f"_uhubctl_cycle_for_tty: sysfs id {sysfs_id} has no parent hub")
+        return False
+    # Walk upward: i=1 is direct parent, i=2 is grandparent, etc. Stop short of
+    # the root host controller (parts[0] alone, e.g. '1-1') since uhubctl can't
+    # really cycle that — it's the host controller's port.
+    for i in range(1, len(parts)):
+        candidate_hub = ".".join(parts[:-i])
+        candidate_port = parts[-i]
+        if not _hub_supports_ppps(candidate_hub):
+            continue
+        print(f"_uhubctl_cycle_for_tty: cycling hub {candidate_hub} port {candidate_port} for {tty_path}")
+        try:
+            result = subprocess.run(
+                ["uhubctl", "-l", candidate_hub, "-p", candidate_port, "-a", "cycle"],
+                timeout=15, capture_output=True, text=True,
+            )
+        except FileNotFoundError:
+            print("_uhubctl_cycle_for_tty: 'uhubctl' not on PATH; can't recover")
+            return False
+        except subprocess.TimeoutExpired:
+            print(f"_uhubctl_cycle_for_tty: uhubctl cycle timed out on {candidate_hub} port {candidate_port}")
+            return False
+        if result.returncode != 0:
+            print(f"_uhubctl_cycle_for_tty: uhubctl rc={result.returncode}, "
+                  f"stderr={result.stderr.strip()[:200]}")
+            return False
+        # Wait for udev to re-bind the cp210x driver and re-create /dev/ttyUSBN
+        # plus the /dev/serial/by-id symlinks. On the .183 test bench, full
+        # rebind across a ganged hub takes ~5-7s; 10s is generous.
+        time.sleep(10)
+        print(f"_uhubctl_cycle_for_tty: cycle of {candidate_hub} port {candidate_port} OK for {tty_path}")
+        return True
+    print(f"_uhubctl_cycle_for_tty: no PPPS-capable ancestor found for {tty_path}")
+    return False
+
+
+def sniffle_stall_detector_thread():
+    """Periodically check each running sniffer's pcap file for growth. Files
+    that have not grown for SNIFFLE_STALL_THRESHOLD_S indicate the firmware
+    has stopped emitting packets — the python process is healthy, the kernel
+    keeps the device file open, but the dongle is silently wedged. Kill the
+    process so the standard relaunch path picks up the port; flag it for
+    usbreset so the next launch starts from a clean cp210x state.
+
+    Skips the first SNIFFLE_FRESH_LAUNCH_GRACE_S after a (re)launch so a slow
+    startup doesn't get misdiagnosed as a stall.
+    """
+    while True:
+        time.sleep(SNIFFLE_STALL_CHECK_PERIOD_S)
+        now = time.monotonic()
+        # Snapshot items so we don't fight the sniffle thread mutating the dict.
+        for port, pid in list(serial_port_status.items()):
+            if pid <= 0:
+                continue
+            with sniffle_state_lock:
+                pcap_path = serial_port_pcap_path.get(port)
+                launch_time = serial_port_launch_time.get(port, 0)
+            if not pcap_path:
+                continue
+            if now - launch_time < SNIFFLE_FRESH_LAUNCH_GRACE_S:
+                continue
+            try:
+                size = os.path.getsize(pcap_path)
+            except OSError:
+                continue
+            with sniffle_state_lock:
+                prev = serial_port_pcap_last_seen.get(port)
+                if prev is None or prev[0] != size:
+                    # First observation or file is still growing.
+                    serial_port_pcap_last_seen[port] = (size, now)
+                    continue
+                stalled_for = now - prev[1]
+            if stalled_for < SNIFFLE_STALL_THRESHOLD_S:
+                continue
+            print(f"[stall] sniffer pid {pid} on {port} has not produced packets "
+                  f"for {stalled_for:.0f}s (pcap stuck at {size} bytes). "
+                  f"Killing + flagging for usbreset before relaunch.")
+            external_log_write(
+                sniffle_stdout_log_path,
+                f"SNIFFLE STALL on {port}: pid {pid} stuck at {size} bytes for "
+                f"{stalled_for:.0f}s; killing and flagging for usbreset "
+                f"{datetime.datetime.now()}")
+            with sniffle_state_lock:
+                serial_port_needs_usb_reset[port] = True
+                serial_port_pcap_last_seen.pop(port, None)
+            try:
+                os.kill(pid, 9)  # SIGKILL — sniff_receiver doesn't trap signals
+            except ProcessLookupError:
+                pass
+
+
 # Function for the Sniffle thread(s)
 def sniffle_thread_function():
     global sniffle_stdout_logging
     global start_sniffle_threads_condition
+    global _last_bg_uhubctl_cycle_at
 
     if(print_verbose):
         for _path, _role in serial_port_role.items():
@@ -1796,6 +2366,48 @@ def sniffle_thread_function():
             # IMPORTANT NOTE: Even though sniffle on the CLI doesn't need an = after the arguments, when launched this way, it does!
             sniffle_cmd = build_sniffle_cmd(link_target_absolute_path, role, launch_time, short_name, host)
 
+            # Wedge recovery: if the previous incarnation of this sniffer
+            # exited with EIO or got SIGKILLed by the stall detector, the
+            # dongle's cp210x state needs a USB-level reset before the next
+            # open() will succeed. Consume the flag and reset before
+            # launching. If the usbreset itself fails (typically because the
+            # cp210x has fully detached and USBDEVFS_RESET returns ENODEV),
+            # escalate to a hub power-cycle — same pattern as the BG path's
+            # _release_bg_dongle. The shared cycle lock + cooldown means a
+            # concurrent BG recovery can't pile on with its own cycle of the
+            # same hub, and vice versa.
+            with sniffle_state_lock:
+                needs_reset = serial_port_needs_usb_reset.pop(link_target_absolute_path, False)
+            if needs_reset:
+                reset_ok = _usbreset_dongle(link_target_absolute_path)
+                if not reset_ok:
+                    with _bg_uhubctl_cycle_lock:
+                        now = time.monotonic()
+                        if now - _last_bg_uhubctl_cycle_at < UHUBCTL_BG_COOLDOWN_S:
+                            tprint(f"Sniffle: usbreset of {link_target_absolute_path} failed; "
+                                   f"skipping uhubctl (cooldown active, "
+                                   f"{now - _last_bg_uhubctl_cycle_at:.0f}s since last cycle)")
+                        else:
+                            tprint(f"Sniffle: usbreset of {link_target_absolute_path} failed; "
+                                   f"falling back to uhubctl power-cycle (will also bounce "
+                                   f"other dongles on the hub)")
+                            _last_bg_uhubctl_cycle_at = now
+                            cycled = _uhubctl_cycle_for_tty(link_target_absolute_path)
+                            if cycled:
+                                # Stale per-dongle BG failure counters from before the cycle
+                                # are no longer meaningful; mirror the BG-side reset so the
+                                # next pickups don't immediately re-flag a freshly-rebound
+                                # dongle.
+                                for k in list(bg_dongle_consecutive_failures.keys()):
+                                    bg_dongle_consecutive_failures[k] = 0
+                            else:
+                                _last_bg_uhubctl_cycle_at = 0.0
+                    # Brief backoff so a hub mid-rebind doesn't see another
+                    # immediate open() that fast-fails and re-flags. Without
+                    # this, a still-wedged dongle would respin the relaunch
+                    # loop at ~3-4 Hz (96k SNIFFLE LAUNCH FAILUREs in NYC).
+                    time.sleep(3)
+
             try:
                 if(sniffle_stdout_logging):
                     sniffle_append_stdout = open(f"{sniffle_pcap_log_folder}/Sniffle_stdout.log", "a")
@@ -1804,6 +2416,18 @@ def sniffle_thread_function():
                 sniffle_process = launch_application(sniffle_cmd, default_cwd, stdout=sniffle_append_stdout)
                 if(print_verbose): print(f"Setting {link_target_absolute_path} pid to {sniffle_process.pid}")
                 serial_port_status[link_target_absolute_path] = sniffle_process.pid
+                # Record the pcap output path + launch wall-time so the stall
+                # detector knows what file to watch and whether to grant the
+                # fresh-launch grace window.
+                pcap_path_for_stall_detector = None
+                for tok in sniffle_cmd:
+                    if tok.startswith("-o="):
+                        pcap_path_for_stall_detector = tok[3:]
+                        break
+                with sniffle_state_lock:
+                    serial_port_pcap_path[link_target_absolute_path] = pcap_path_for_stall_detector
+                    serial_port_pcap_last_seen.pop(link_target_absolute_path, None)
+                    serial_port_launch_time[link_target_absolute_path] = time.monotonic()
             except BlockingIOError as e:
                 print(f"Caught BlockingIOError while launching Sniffle application: {e}") # This seems to be due to a rare error while attempting a fork() within Popen()
                 # This doesn't seem to ever resolve itself for hours after it eventually occurs (which takes about 5 hours). So I need to just reboot to resolve it
@@ -1875,6 +2499,9 @@ def _start_workers_after_dongle_init(args):
         threading.Thread(target=btc_thread_function, daemon=True).start()
     if(Sniffle_thread_enabled):
         threading.Thread(target=sniffle_thread_function, daemon=True).start()
+        # Detector for silently-wedged dongles (pcap-file growth stops while
+        # the python sniffer keeps running). See SNIFFLE_STALL_THRESHOLD_S.
+        threading.Thread(target=sniffle_stall_detector_thread, daemon=True).start()
         with start_sniffle_threads_condition:
             start_sniffle_threads_condition.notify()
 

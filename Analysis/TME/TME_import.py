@@ -5,9 +5,24 @@
 
 import json
 import csv
+import os
+import sys
 import yaml
 import TME.TME_glob
 from TME.TME_helpers import *
+
+# CLUES_Schema ships a shared loader (clues_io.py) that transparently
+# handles both single-file and 16-shard hex-split layouts. Add the
+# submodule's scripts/ dir to sys.path so we can import it without
+# duplicating the layout logic here. Path is relative to this file so it
+# works regardless of the caller's cwd.
+_CLUES_SCHEMA_SCRIPTS = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    '..', 'CLUES_Schema', 'scripts',
+))
+if _CLUES_SCHEMA_SCRIPTS not in sys.path:
+    sys.path.insert(0, _CLUES_SCHEMA_SCRIPTS)
+from clues_io import clues_exists, load_clues  # noqa: E402
 
 ########################################
 # BEGIN FILL DATA FROM JSON ############
@@ -33,39 +48,96 @@ def import_private_metadata_v2():
     except FileNotFoundError:
         pass
 
+# CLUES data tiers, in **increasing** priority order. Each tier's public
+# file is paired with an optional private override that lives under
+# metadata/private/<base>_private.json — same priority tier as its public
+# counterpart but loaded immediately after to override.
+#
+# As of the CLUES_Schema reorg, the submodule's data files moved from
+# CLUES_Schema/*.json to CLUES_Schema/data/*.json, and the canonical
+# hand-verified file was renamed from CLUES_data.json to
+# CLUES_data_human_verified.json to make the contents explicit. Private
+# canonical overrides mirror the new name for consistency.
+#
+# Priority order (low → high) — later files OVERWRITE earlier ones for
+# overlapping UUIDs, so the hand-verified canonical always wins against
+# LLM-derived content for the same UUID. Among LLM-derived tiers, APK-
+# extracted data wins over web-search data because the APK evidence is
+# more trustworthy — the UUID was observed embedded in an actual
+# Android app's compiled code, vs. inferred from prose on a webpage:
+#
+#   1. CLUES_data_LLM_web_search.json            (LLM scrape of web sources)
+#   2. CLUES_data_LLM_Android_APK_search.json    (LLM scrape of APK decompilations)
+#   3. CLUES_data_human_verified.json            (canonical, hand-curated)
+#
+# Only the canonical CLUES_data_human_verified.json is required; the
+# LLM-derived files and every private override are optional and silently
+# skipped if missing.
+#
+# Each path below is a *logical* CLUES file. On disk it may live as a
+# single combined .json OR as 16 hex-bucketed shards (e.g.
+# CLUES_data_LLM_Android_APK_search_0.json .. _f.json) when the file has
+# grown past ~100 MB. The shared `clues_io.load_clues()` helper imported
+# above resolves either layout transparently, so callers reference only
+# the single-file path here and never need to know which form is on disk.
+_CLUES_DATA_FILES = [
+    # (public_path, private_path, required)
+    ('./CLUES_Schema/data/CLUES_data_LLM_web_search.json',
+     './metadata/private/CLUES_data_LLM_web_search_private.json',
+     False),
+    ('./CLUES_Schema/data/CLUES_data_LLM_Android_APK_search.json',
+     './metadata/private/CLUES_data_LLM_Android_APK_search_private.json',
+     False),
+    ('./CLUES_Schema/data/CLUES_data_human_verified.json',
+     './metadata/private/CLUES_data_human_verified_private.json',
+     True),
+]
+
+
+def _load_clues_file(path, required):
+    """Merge one CLUES JSON file into TME_glob.clues / clues_regexed.
+
+    Existing entries for the same UUID are OVERWRITTEN. The caller is
+    responsible for invoking lowest-priority files first so that
+    higher-priority files win the overlap.
+
+    `required=True` raises if the file is missing in BOTH the single-file
+    and 16-shard hex-split layouts (used for the canonical
+    CLUES_data_human_verified.json). Otherwise missing files are silently
+    skipped, which is the right behavior for optional LLM-derived files
+    and for the optional private overrides that may not exist on every
+    developer's checkout.
+    """
+    if not clues_exists(path):
+        if required:
+            raise FileNotFoundError(path)
+        return
+    for entry in load_clues(path):
+        entry['UUID'] = entry['UUID'].replace('-', '')
+        TME.TME_glob.clues[entry['UUID']] = entry
+        if "regex" in entry.keys():
+            TME.TME_glob.clues_regexed[entry['UUID']] = entry
+
+
 # This is data in CLUES format
 def import_CLUES():
+    """Load every CLUES tier — public, then private override per tier —
+    in increasing priority order so higher-priority entries win
+    overlapping UUIDs. See _CLUES_DATA_FILES above for the tier list.
+    """
     global clues
     global clues_regexed
-    # Load JSON data from file
-    json_file = './CLUES_Schema/CLUES_data.json'
-    with open(json_file, 'r') as f:
-        # Convert from array to hash indexed by UUID for faster lookup
-        data = json.load(f)
-        # Remove dashes from UUIDs for consistency with later checking code
-        for entry in data:
-            entry['UUID'] = entry['UUID'].replace('-', '')
-            TME.TME_glob.clues[entry['UUID']] = entry
-            if("regex" in entry.keys()):
-                TME.TME_glob.clues_regexed[entry['UUID']] = entry
-#        TME.TME_glob.clues = {entry['UUID']: entry for entry in data}
+    for public_path, private_path, required in _CLUES_DATA_FILES:
+        _load_clues_file(public_path, required=required)
+        _load_clues_file(private_path, required=False)
 
-# Option to store private metadata in
-# this file. It will be consulted, but
-# doesn't need to be checked in
+
+# Kept as a no-op for backward compatibility with anything outside this
+# repo that calls it. All private-file loading is now interleaved into
+# import_CLUES() above so the per-tier priority order is honored (a
+# private LLM-tier file must not override the canonical public file).
 def import_private_CLUES():
-    global clues
-    global clues_regexed
-    json_file = './metadata/private/CLUES_data_private.json'
-    try:
-        with open(json_file, 'r') as f:
-            data = json.load(f)
-            # Remove dashes from UUIDs for consistency with later checking code
-            for entry in data:
-                entry['UUID'] = entry['UUID'].replace('-', '')
-            TME.TME_glob.clues.update({entry['UUID']: entry for entry in data})
-    except FileNotFoundError:
-        pass
+    pass
 
 
 def import_model_metadata_by_manufacturer():

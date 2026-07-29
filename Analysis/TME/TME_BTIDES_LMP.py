@@ -150,7 +150,7 @@ def ff_LMP_FEATURES_RES_EXT(page, max_page, features):
     lmp_features_hex_str = f"{features:016x}"
     obj = {"escape_127": type_LMP_ESCAPE_127, "extended_opcode": type_ext_opcode_LMP_FEATURES_RES_EXT, "page": page, "max_page": max_page, "lmp_features_hex_str": lmp_features_hex_str}
     if(TME.TME_glob.verbose_BTIDES):
-        obj["opcode_str"] = "LMP_FEATURES_RES_EXT"
+        obj["extended_opcode_str"] = "LMP_FEATURES_RES_EXT"
     return obj
 
 
@@ -158,7 +158,7 @@ def ff_LMP_FEATURES_REQ_EXT(page, max_page, features):
     lmp_features_hex_str = f"{features:016x}"
     obj = {"escape_127": type_LMP_ESCAPE_127, "extended_opcode": type_ext_opcode_LMP_FEATURES_REQ_EXT, "page": page, "max_page": max_page, "lmp_features_hex_str": lmp_features_hex_str}
     if(TME.TME_glob.verbose_BTIDES):
-        obj["opcode_str"] = "LMP_FEATURES_REQ_EXT"
+        obj["extended_opcode_str"] = "LMP_FEATURES_REQ_EXT"
     return obj
 
 
@@ -166,21 +166,27 @@ def ff_LMP_CHANNEL_CLASSIFICATION(afh_channel_classification_bytes):
     afh_channel_classification_hex_str = bytes_to_hex_str(afh_channel_classification_bytes)
     obj = {"escape_127": type_LMP_ESCAPE_127, "extended_opcode": type_ext_opcode_LMP_CHANNEL_CLASSIFICATION, "afh_channel_classification_hex_str": afh_channel_classification_hex_str}
     if(TME.TME_glob.verbose_BTIDES):
-        obj["opcode_str"] = "LMP_CHANNEL_CLASSIFICATION"
+        obj["extended_opcode_str"] = "LMP_CHANNEL_CLASSIFICATION"
     return obj
 
 
 def ff_LMP_POWER_CONTROL_REQ(power_adj_req):
     obj = {"escape_127": type_LMP_ESCAPE_127, "extended_opcode": type_ext_opcode_LMP_POWER_CONTROL_REQ, "power_adj_req": power_adj_req}
     if(TME.TME_glob.verbose_BTIDES):
-        obj["opcode_str"] = "LMP_POWER_CONTROL_REQ"
+        obj["extended_opcode_str"] = "LMP_POWER_CONTROL_REQ"
     return obj
 
 
 def ff_LMP_POWER_CONTROL_RES(power_adj_res):
-    obj = {"escape_127": type_LMP_ESCAPE_127, "extended_opcode": type_ext_opcode_LMP_POWER_CONTROL_RES, "power_adj_res": power_adj_res}
+    # BTIDES schema renamed this field from `power_adj_res` to `power_adj_rsp`
+    # to match BT spec versions after 5.2 (the 5.2 spec used `res`; newer
+    # specs use `rsp`). The DB column name and the Python parameter name are
+    # still `power_adj_res` for backward compatibility — only the on-wire
+    # BTIDES JSON key matches the schema. Importer (BTIDES_to_SQL.py) also
+    # accepts the new key and is the symmetric counterpart of this change.
+    obj = {"escape_127": type_LMP_ESCAPE_127, "extended_opcode": type_ext_opcode_LMP_POWER_CONTROL_RES, "power_adj_rsp": power_adj_res}
     if(TME.TME_glob.verbose_BTIDES):
-        obj["opcode_str"] = "LMP_POWER_CONTROL_RES"
+        obj["extended_opcode_str"] = "LMP_POWER_CONTROL_RES"
     return obj
 
 

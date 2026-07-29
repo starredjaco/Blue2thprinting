@@ -4,6 +4,8 @@ import socket
 import ssl
 import socketserver
 import urllib.parse
+import urllib.request
+import urllib.error
 from pathlib import Path
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -21,7 +23,7 @@ def load_oauth_secrets():
     try:
         with open(secrets_path) as f:
             secrets = json.load(f)
-        return secrets['client_secret'], '934838710114-hrn5hafisthr3eqh7gnr1jka5c5hmjli.apps.googleusercontent.com'
+        return secrets['client_secret'], '6849068466-1sone95u0ihio99646tn60s234d88hge.apps.googleusercontent.com'
     except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
         raise RuntimeError(f"Failed to load OAuth secrets: {e}")
 
@@ -67,7 +69,7 @@ class OAuthHandler(http.server.BaseHTTPRequestHandler):
             """.encode())
             return
 
-        elif self.path == '/oauth2callback':
+        elif self.path.startswith('/oauth2callback'):
             query_components = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
 
             if 'code' in query_components:
@@ -104,6 +106,8 @@ class OAuthHandler(http.server.BaseHTTPRequestHandler):
                         </body></html>
                     """.encode())
                 except Exception as e:
+                    import traceback
+                    traceback.print_exc()
                     self.send_response(500)
                     self.send_header('Content-type', 'text/plain')
                     self.end_headers()
@@ -145,6 +149,75 @@ class OAuthHandler(http.server.BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
                 self.wfile.write(json.dumps(token_data).encode())
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-Type', 'text/plain')
+                self.end_headers()
+                self.wfile.write(str(e).encode())
+
+        # PHONE-APP INTERFACE (distinct from the CLI copy-paste GET /oauth2callback above).
+        # The DM BT Android app does a fully-native Google sign-in (Google Identity Services
+        # AuthorizationClient.requestOfflineAccess) and obtains a one-time *serverAuthCode* for
+        # this web client. It POSTs {"auth_code": "..."} here; we exchange that code for the
+        # access + refresh tokens (we hold the client secret) and hand them straight back over
+        # TLS — no token ever transits a browser URL or a copy-paste step.
+        elif self.path == '/exchange_app':
+            try:
+                content_length = int(self.headers['Content-Length'])
+                post_data = json.loads(self.rfile.read(content_length))
+                auth_code = post_data.get('auth_code')
+                if not auth_code:
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'text/plain')
+                    self.end_headers()
+                    self.wfile.write(b'Missing auth_code')
+                    return
+
+                # Exchange the Android serverAuthCode. Per Google's "Enabling Server-Side Access"
+                # guidance the redirect_uri for a native serverAuthCode exchange is the empty
+                # string. (If Google ever returns redirect_uri_mismatch here, drop the field.)
+                exchange_body = urllib.parse.urlencode({
+                    'code': auth_code,
+                    'client_id': CLIENT_ID,
+                    'client_secret': CLIENT_SECRET,
+                    'redirect_uri': '',
+                    'grant_type': 'authorization_code',
+                }).encode('utf-8')
+                req = urllib.request.Request(
+                    'https://oauth2.googleapis.com/token',
+                    data=exchange_body,
+                    headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                    method='POST',
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    google_tokens = json.loads(resp.read().decode('utf-8'))
+
+                token_data = {
+                    'token': google_tokens.get('access_token'),
+                    'refresh_token': google_tokens.get('refresh_token'),
+                }
+                # A missing refresh_token usually means consent wasn't forced — the app must
+                # request offline access with forceCodeForRefreshToken=true.
+                if not token_data['token'] or not token_data['refresh_token']:
+                    self.send_response(502)
+                    self.send_header('Content-Type', 'text/plain')
+                    self.end_headers()
+                    self.wfile.write(b'Token endpoint did not return both token and refresh_token')
+                    return
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(token_data).encode())
+            except urllib.error.HTTPError as e:
+                # Surface Google's actual error body (invalid_grant / invalid_client /
+                # redirect_uri_mismatch / unauthorized_client) so a failed exchange is diagnosable
+                # rather than a bare "HTTP Error 400: Bad Request".
+                detail = e.read().decode('utf-8', 'replace')
+                self.send_response(502)
+                self.send_header('Content-Type', 'text/plain')
+                self.end_headers()
+                self.wfile.write(f"Google token endpoint {e.code}: {detail}".encode())
             except Exception as e:
                 self.send_response(500)
                 self.send_header('Content-Type', 'text/plain')

@@ -10,6 +10,18 @@ from pathlib import Path
 from handle_venv import activate_venv
 activate_venv()
 
+# Restore the default Unix SIGPIPE behavior so that piping our output to
+# pagers / head / etc. and quitting early (e.g. `--UUID128-stats | less`
+# followed by `q`) terminates this process quietly instead of unwinding
+# into the deep `BrokenPipeError` traceback Python's default handler
+# would otherwise produce on the next print. Wrapped because SIGPIPE
+# doesn't exist on Windows and can't be set off the main thread.
+import signal
+try:
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+except (AttributeError, ValueError):
+    pass
+
 import argparse
 # Import from my files
 from TME.TME_helpers import *
@@ -28,12 +40,14 @@ from TME.TME_metadata import *
 from TME.TME_trackability import *
 from TME.TME_GPS import *
 from TME.TME_glob import verbose_print, quiet_print, verbose_BTIDES
-from BTIDALPOOL_to_BTIDES import retrieve_btides_from_btidalpool
-from BTIDES_to_BTIDALPOOL import send_btides_to_btidalpool
-from oauth_helper import AuthClient
 from BTIDES_to_SQL import btides_to_sql_args, btides_to_sql
-from PCAP_to_BTIDES import read_pcap
-from HCI_to_BTIDES import read_HCI
+from TME.TME_BTIDES_base import rebuild_SingleBDADDR_index
+# PCAP_to_BTIDES and HCI_to_BTIDES both pull in scapy at module-load time, and
+# scapy isn't part of the capture-side venv. BTIDALPOOL_to_BTIDES /
+# BTIDES_to_BTIDALPOOL / oauth_helper pull in google-auth-oauthlib /
+# googleapiclient, which the capture-side venv also lacks. Import all of these
+# lazily inside the branches that actually need them so a capture node can run
+# --input-BTIDES with just its core deps.
 
 ########################################
 # MAIN #################################
@@ -60,6 +74,7 @@ def main():
     btides_group = parser.add_argument_group('BTIDES file output arguments')
     btides_group.add_argument('--input-pcap', action='append',  required=False, help='Input pcap file which will be converted to a BTIDES JSON file and imported into the local database, and all the BDADDRs within selected for printout. May be passed multiple times.')
     btides_group.add_argument('--input-hci-log', action='append', required=False, help='Input HCI log file which will be converted to a BTIDES JSON file and imported into the local database, and all the BDADDRs within selected for printout. May be passed multiple times.')
+    btides_group.add_argument('--input-BTIDES', action='append', required=False, help='Input BTIDES JSON file (e.g. one written by btc_sdp_gatt.py, HCI_to_BTIDES.py, or a prior --output run). Loaded directly without going through pcap/HCI conversion, imported into the local database, and all the BDADDRs within selected for printout. May be passed multiple times.')
     btides_group.add_argument('--include-centrals', action='store_true', help='Include the Central BDADDR from connections in the output.')
     btides_group.add_argument('--output', type=str, required=False, help='Output file name for BTIDES JSON file.')
     btides_group.add_argument('--verbose-BTIDES', action='store_true', required=False, help='Include optional fields in BTIDES output that make it more human-readable.')
@@ -114,6 +129,18 @@ def main():
     if args.to_BTIDALPOOL and not out_filename:
         # Create a default temporary filename if people provide the --to-BTIDALPOOL flag without a --output filename
         out_filename = "/tmp/tme.btides"
+
+    # Default --token-file to ./tf (resolved relative to this script's own
+    # directory, NOT the CWD) when either --query-BTIDALPOOL or
+    # --to-BTIDALPOOL is used without an explicit --token-file. Matches
+    # the convention the test suite and docs use (Analysis/tf). If ./tf
+    # doesn't exist, leave args.token_file as None so the existing
+    # interactive Google-SSO flow downstream can still kick in and the
+    # user isn't silently routed to a nonexistent file.
+    if (args.query_BTIDALPOOL or args.to_BTIDALPOOL) and not args.token_file:
+        default_token = Path(__file__).resolve().parent / "tf"
+        if default_token.is_file() and default_token.stat().st_size > 0:
+            args.token_file = str(default_token)
     TME.TME_glob.verbose_print = args.verbose_print
     TME.TME_glob.quiet_print = args.quiet_print
     TME.TME_glob.verbose_BTIDES = args.verbose_BTIDES
@@ -141,12 +168,41 @@ def main():
     # and collect all the BDADDRs from it for printing.
     #######################################################
     if args.input_pcap is not None:
+        from PCAP_to_BTIDES import read_pcap   # lazy: pulls scapy
         for pcap in args.input_pcap:
             read_pcap(pcap)
 
     if args.input_hci_log is not None:
+        from HCI_to_BTIDES import read_HCI     # lazy: pulls scapy
         for hci_log in args.input_hci_log:
             read_HCI(hci_log)
+
+    if args.input_BTIDES is not None:
+        # Each --input-BTIDES file is a top-level JSON list following the
+        # BTIDES schema. Extend (don't replace) TME.TME_glob.BTIDES_JSON so
+        # multiple files combine, and so anything previously populated by
+        # --input-pcap / --input-hci-log isn't lost. The downstream
+        # btides_to_sql call (gated on BTIDES_JSON being non-empty, line ~158)
+        # validates each entry against the schema before SQL import.
+        for btides_path in args.input_BTIDES:
+            if not os.path.isfile(btides_path):
+                print(f"Error: --input-BTIDES file '{btides_path}' does not exist or is not a file.")
+                return
+            try:
+                with open(btides_path, 'r') as f:
+                    loaded = json.load(f)
+            except json.JSONDecodeError as e:
+                print(f"Error: --input-BTIDES file '{btides_path}' is not valid JSON: {e}")
+                return
+            if not isinstance(loaded, list):
+                print(f"Error: --input-BTIDES file '{btides_path}' top-level must be a JSON array (got {type(loaded).__name__}).")
+                return
+            TME.TME_glob.BTIDES_JSON.extend(loaded)
+            qprint(f"Loaded {len(loaded)} BTIDES entries from {btides_path}")
+        # Refresh the bdaddr -> entry index after the bulk extend so subsequent
+        # lookup_SingleBDADDR_base_entry() calls in the analysis path see the
+        # newly loaded items.
+        rebuild_SingleBDADDR_index()
 
     # Fill in bdaddrs[] with the bdaddrs in the BTIDES data, if any
     if(TME.TME_glob.BTIDES_JSON):
@@ -174,6 +230,9 @@ def main():
     # with the rest of the code as normal.
     #######################################################
     if(args.query_BTIDALPOOL):
+        # Lazy import: pulls oauth_helper -> google_auth_oauthlib + googleapiclient.
+        from BTIDALPOOL_to_BTIDES import retrieve_btides_from_btidalpool
+        from oauth_helper import AuthClient
         qprint("Querying BTIDALPOOL")
         query_object = {}
         if args.bdaddr:
@@ -516,6 +575,9 @@ def main():
 
         # We can only send the out_filename if --output was passed
         if args.to_BTIDALPOOL:
+            # Lazy import: pulls oauth_helper -> google_auth_oauthlib + googleapiclient.
+            from BTIDES_to_BTIDALPOOL import send_btides_to_btidalpool
+            from oauth_helper import AuthClient
             # If the token isn't given on the CLI, then redirect them to go login and get one
             client = AuthClient()
             if args.token_file:
@@ -545,4 +607,24 @@ def main():
             )
 
 if __name__ == "__main__":
-    main()
+    # SIGPIPE → SIG_DFL above isn't sufficient on its own: when stdout is a
+    # closed pipe (e.g. user did `--UUID128-stats | less` then `q`),
+    # Python's BufferedWriter — and colorama's StreamWrapper layered on
+    # top of it — catches the underlying write()'s EPIPE and raises
+    # BrokenPipeError BEFORE the queued SIGPIPE can terminate the
+    # process. The exception propagates up through every colorama write
+    # frame to here and prints a deep traceback on stderr. The fix from
+    # the Python docs (https://docs.python.org/3/library/signal.html
+    # #note-on-sigpipe) is to catch BrokenPipeError at the top level and
+    # redirect remaining stdout writes to /dev/null so the interpreter's
+    # shutdown-time stream flush doesn't trip a second BrokenPipeError
+    # ("Exception ignored in: ..." line in the user's report).
+    try:
+        main()
+    except BrokenPipeError:
+        try:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+        except OSError:
+            pass
+        sys.exit(1)

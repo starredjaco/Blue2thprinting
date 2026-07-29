@@ -162,59 +162,39 @@ def characteristic_value_decoding(indent, UUID128, bytes, bdaddr=None, bdaddr_ra
         else:
             qprint(f"{indent}PnP ID present, but length is not 7 bytes, so cannot decode. Length = {len(bytes)} bytes.")
 
-# Returns 0 if there is no GATT info for this BDADDR in any of the GATT tables, else returns 1
+# Returns True if there is any GATT info for this BDADDR in any of the GATT
+# tables, else False.
+#
+# All four GATT tables share the same unique-index layout (bdaddr_random,
+# bdaddr, ...), so a `WHERE bdaddr = %s` without bdaddr_random would fall
+# off the leftmost prefix and trigger full table scans. The shared
+# `device_row_exists_by_bdaddr_random` helper forces the index by either
+# binding bdaddr_random when supplied, or probing both 0 and 1 when not.
 def device_has_GATT_any(bdaddr, bdaddr_random):
-    # Query the database for all GATT services
-    if(bdaddr_random is not None):
-        values = (bdaddr, bdaddr_random)
-        query = "SELECT begin_handle, end_handle, UUID FROM GATT_services WHERE bdaddr = %s AND bdaddr_random = %s";
-    else:
-        values = (bdaddr,)
-        query = "SELECT begin_handle, end_handle, UUID FROM GATT_services WHERE bdaddr = %s";
-    GATT_services_result = execute_query(query, values)
-    if(len(GATT_services_result) != 0):
-        return True
-
-    if(bdaddr_random is not None):
-        query = "SELECT attribute_handle, UUID FROM GATT_attribute_handles WHERE bdaddr = %s AND bdaddr_random = %s";
-    else:
-        query = "SELECT attribute_handle, UUID FROM GATT_attribute_handles WHERE bdaddr = %s";
-    GATT_attribute_handles_result = execute_query(query, values)
-    if(len(GATT_attribute_handles_result) != 0):
-        return True
-
-    if(bdaddr_random is not None):
-        query = "SELECT declaration_handle, char_properties, char_value_handle, UUID FROM GATT_characteristics WHERE bdaddr = %s AND bdaddr_random = %s";
-    else:
-        query = "SELECT declaration_handle, char_properties, char_value_handle, UUID FROM GATT_characteristics WHERE bdaddr = %s";
-    GATT_characteristics_result = execute_query(query, values)
-    if(len(GATT_characteristics_result) != 0):
-        return True
-
-    if(bdaddr_random is not None):
-        query = "SELECT char_value_handle, byte_values FROM GATT_characteristics_values WHERE bdaddr = %s AND bdaddr_random = %s";
-    else:
-        query = "SELECT char_value_handle, byte_values FROM GATT_characteristics_values WHERE bdaddr = %s";
-    GATT_characteristics_values_result = execute_query(query, values)
-    if(len(GATT_characteristics_values_result) != 0):
-        return True
-
+    for table in ("GATT_services", "GATT_attribute_handles",
+                  "GATT_characteristics", "GATT_characteristics_values"):
+        if device_row_exists_by_bdaddr_random(table, bdaddr, bdaddr_random):
+            return True
     return False
 
-# Returns 0 if there is no GATT info for this BDADDR in any of the GATT tables, else returns 1
+
+# Returns True if there is at least one read characteristic VALUE for this
+# BDADDR in GATT_characteristics_values, else False.
+#
+# Previously this had two bugs:
+#   1. When --bdaddr-type was passed (bdaddr_random is not None), the
+#      function silently queried GATT_services instead of
+#      GATT_characteristics_values — so the result reflected service
+#      existence rather than value existence.
+#   2. When --bdaddr-type was NOT passed, the query was
+#      `WHERE bdaddr = %s` against GATT_characteristics_values, which
+#      doesn't filter on the leftmost-prefix column (bdaddr_random) of the
+#      uni_name index and therefore did a full table scan (cost ~25k on
+#      bt2). With N candidates from --UUID-regex that was N full table
+#      scans per --require-GATT-values invocation.
 def device_has_GATT_values(bdaddr, bdaddr_random):
-    # Query the database for all GATT services
-    if(bdaddr_random is not None):
-        values = (bdaddr, bdaddr_random)
-        query = "SELECT begin_handle, end_handle, UUID FROM GATT_services WHERE bdaddr = %s AND bdaddr_random = %s";
-    else:
-        values = (bdaddr,)
-        query = "SELECT char_value_handle, byte_values FROM GATT_characteristics_values WHERE bdaddr = %s";
-    GATT_characteristics_values_result = execute_query(query, values)
-    if(len(GATT_characteristics_values_result) != 0):
-        return True
-
-    return False
+    return device_row_exists_by_bdaddr_random(
+        "GATT_characteristics_values", bdaddr, bdaddr_random)
 
 def descriptor_print(indent, UUID, operation, byte_values):
     if(UUID == "2900"):
@@ -315,6 +295,15 @@ def print_GATT_info(bdaddr, bdaddr_random):
         query = "SELECT bdaddr_random, declaration_handle, char_properties, char_value_handle, UUID FROM GATT_characteristics WHERE bdaddr = %s";
     GATT_characteristics_result = execute_query(query, values)
     characteristic_declaration_handles_dict = {declaration_handle: (char_properties, char_value_handle, UUID) for bdaddr_random2, declaration_handle, char_properties, char_value_handle, UUID in GATT_characteristics_result}
+    # Reverse mapping char_value_handle -> value UUID, used when building
+    # CharacteristicValue export entries below. The BTIDES schema marks
+    # `value_uuid` as required on CharacteristicValue, so we have to look
+    # it up from the parent Characteristic row (the values table itself
+    # doesn't store the UUID).
+    char_value_handle_to_uuid = {
+        cvh: u
+        for (_props, cvh, u) in characteristic_declaration_handles_dict.values()
+    }
     for bdaddr_random2, declaration_handle, char_properties, char_value_handle, UUID in GATT_characteristics_result:
         UUID = add_dashes_to_UUID128(UUID)
         data = {"handle": declaration_handle, "properties": char_properties, "value_handle": char_value_handle, "value_uuid": UUID}
@@ -328,7 +317,15 @@ def print_GATT_info(bdaddr, bdaddr_random):
     # Need to be smarter about storing values into lookup-by-handle dictionary, because there can be multiple distinct values in the database for a single handle
     char_value_handles_dict = {}
     for bdaddr_random2, char_value_handle, operation, byte_values in GATT_characteristics_values_result:
-        data = {"handle": char_value_handle, "io_array": [ {"io_type": operation, "value_hex_str": byte_values.hex()} ] }
+        # Resolve the value's UUID from the parent Characteristic. Fall back to
+        # "FFFF" (the same placeholder used elsewhere in the codebase, e.g.
+        # TME_BTIDES_GATT.py's placeholder_char_obj) when the values row is
+        # orphaned — i.e. we have a read value but no corresponding
+        # Characteristic row, which can happen with partial GATT enumerations.
+        value_uuid = char_value_handle_to_uuid.get(char_value_handle, "FFFF")
+        value_uuid = add_dashes_to_UUID128(value_uuid)
+        data = {"handle": char_value_handle, "value_uuid": value_uuid,
+                "io_array": [ {"io_type": operation, "value_hex_str": byte_values.hex()} ] }
         BTIDES_export_GATT_Characteristic_Value(bdaddr=bdaddr, random=bdaddr_random, data=data)
 
         if(char_value_handle in char_value_handles_dict.keys()):
@@ -502,7 +499,15 @@ def print_GATT_info(bdaddr, bdaddr_random):
                             if(handle <= svc_end_handle and handle >= svc_begin_handle):
                                 service_match_dict[handle] = 1
                                 error_code = int.from_bytes(byte_values)
-                                fmt_byte_values = Fore.RED + Style.BRIGHT + f"{TME.BT_Data_Types.att_errorcode_to_str[error_code]}"
+                                # ATT spec carves out vendor-defined error ranges
+                                # (0x80-0x9F Application, 0xA0-0xDF Profile/Service,
+                                # 0xE0-0xFF Application again) that aren't in the
+                                # core att_errorcode_to_str table. Fall back to a
+                                # hex-string label rather than KeyError-crashing
+                                # the entire TME run on a single odd device read.
+                                error_str = TME.BT_Data_Types.att_errorcode_to_str.get(
+                                    error_code, f"Unknown ATT error 0x{error_code:02x}")
+                                fmt_byte_values = Fore.RED + Style.BRIGHT + error_str
                                 qprint(f"{i5}GATT error received when attempting read: {fmt_byte_values}")
                     if any(key[0] == handle and key[1] == type_ATT_READ_RSP for key in char_value_handles_dict.keys()):
                         for byte_values in char_value_handles_dict[(handle, type_ATT_READ_RSP)]:

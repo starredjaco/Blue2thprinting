@@ -27,6 +27,7 @@ from handle_venv import activate_venv
 activate_venv()
 
 import argparse
+import asyncio
 import json
 import os
 import re
@@ -49,18 +50,36 @@ from TME.TME_BTIDES_base import (
     ff_SingleBDADDR_base,
 )
 from TME.TME_BTIDES_SDP import ff_SDP_Common, ff_SDP_ERROR_RSP
-from TME.TME_BTIDES_GATT import ff_GATT_Service, ff_GATT_Characteristic
+from TME.TME_BTIDES_GATT import (
+    ff_GATT_Service,
+    ff_GATT_Characteristic,
+    ff_GATT_Characteristic_Value,
+    ff_Descriptor,
+)
 from TME.BT_Data_Types import (
     type_SDP_ERROR_RSP,
     type_SDP_SERVICE_SEARCH_ATTR_REQ,
     type_SDP_SERVICE_SEARCH_ATTR_RSP,
     type_ATT_ERROR_RSP,
     type_ATT_EXCHANGE_MTU_REQ,
+    type_ATT_FIND_INFORMATION_REQ,
+    type_ATT_FIND_INFORMATION_RSP,
+    type_ATT_READ_REQ,
+    type_ATT_READ_RSP,
+    type_ATT_READ_BLOB_REQ,
+    type_ATT_READ_BLOB_RSP,
     type_ATT_READ_BY_TYPE_REQ,
     type_ATT_READ_BY_TYPE_RSP,
     type_ATT_READ_BY_GROUP_TYPE_REQ,
     type_ATT_READ_BY_GROUP_TYPE_RSP,
 )
+
+# ATT spec opcode not currently exported from BT_Data_Types.
+type_ATT_EXCHANGE_MTU_RSP = 0x03
+# ATT error code we use to short-circuit blob continuation.
+ATT_ERROR_ATTRIBUTE_NOT_LONG = 0x0B
+# Characteristic-properties bit (Bluetooth Core Vol 3 Part G §3.3.1.1).
+CHAR_PROP_READ = 0x02
 from TME.BTIDES_Data_Types import type_BTIDES_direction_C2P, type_BTIDES_direction_P2C
 from TME.TME_helpers import qprint, bytes_to_hex_str
 
@@ -118,11 +137,65 @@ def _require_bluez():
             "Install Python with Bluetooth socket support."
         )
 
-def _open_l2cap(bdaddr_colon, psm, timeout):
-    """Open an L2CAP connection-oriented socket to (bdaddr, psm)."""
+_HCICONFIG_BDADDR_RE = re.compile(r'BD Address:\s*([0-9A-Fa-f:]{17})')
+
+def _hci_address(hci_idx):
+    """Resolve hciN to its BDADDR (colon-delimited). Used to bind() L2CAP
+    sockets to a specific local controller for `--hci`.
+
+    Reading /sys/class/bluetooth/hciN/address would be cleaner, but on at
+    least Raspbian Trixie that file isn't exposed (the directory contains
+    only `device`, `power`, `rfkillN`, `subsystem`, `uevent`), so we shell
+    out to hciconfig — it's in the `bluez` apt package this repo already
+    depends on, and its output format ("\\tBD Address: AA:BB:CC:DD:EE:FF ...")
+    has been stable for over a decade.
+
+    Raises RuntimeError with a friendly message when the adapter doesn't
+    exist or hciconfig is missing, so a `--hci 5` typo on a 2-adapter box
+    fails clearly rather than producing an opaque bind() error later."""
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["hciconfig", f"hci{hci_idx}"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except FileNotFoundError:
+        raise RuntimeError(
+            "hciconfig not found. Install the 'bluez' apt package "
+            "(`sudo apt-get install -y bluez`) or pick an hci adapter "
+            "another way.")
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"hciconfig hci{hci_idx} timed out after 5s.")
+    if out.returncode != 0 or not out.stdout:
+        msg = (out.stderr or out.stdout or "").strip()
+        raise RuntimeError(
+            f"hci{hci_idx} not found by hciconfig. "
+            f"Try `hciconfig` to see available adapters."
+            + (f" ({msg})" if msg else ""))
+    m = _HCICONFIG_BDADDR_RE.search(out.stdout)
+    if not m:
+        raise RuntimeError(
+            f"hciconfig hci{hci_idx} did not include a 'BD Address:' line. "
+            f"Output:\n{out.stdout}")
+    return m.group(1).upper()
+
+
+def _open_l2cap(bdaddr_colon, psm, timeout, source_bdaddr=None):
+    """Open an L2CAP connection-oriented socket to (bdaddr, psm).
+
+    When source_bdaddr is given, bind the socket to that local controller's
+    BDADDR before connecting. The kernel uses the source-address binding to
+    route the outbound connect through the matching hci interface, which is
+    how `--hci N` selects between e.g. the Realtek dongle on hci0 and the
+    Pi's onboard Cypress on hci1."""
     _require_bluez()
     sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
     sock.settimeout(timeout)
+    if source_bdaddr is not None:
+        # bind tuple is (local_bdaddr, psm=0). PSM=0 here means "any local
+        # PSM" for the outbound side; what matters is the local_bdaddr,
+        # which pins the socket to a specific controller.
+        sock.bind((source_bdaddr, 0))
     sock.connect((bdaddr_colon, psm))
     return sock
 
@@ -259,7 +332,8 @@ def _flatten_attr_pairs(flat):
 # SDP browse: send SDP_SERVICE_SEARCH_ATTR_REQ, capture every PDU exchanged.
 # ---------------------------------------------------------------------------
 
-def sdp_browse(bdaddr_colon, timeout=10.0, max_attr_byte_count=4096):
+def sdp_browse(bdaddr_colon, timeout=10.0, max_attr_byte_count=4096,
+               source_bdaddr=None):
     """Run SDP_SERVICE_SEARCH_ATTR against the device.
 
     Returns (pdus, parsed_records) where:
@@ -267,9 +341,11 @@ def sdp_browse(bdaddr_colon, timeout=10.0, max_attr_byte_count=4096):
               (suitable for direct insertion into BTIDES SDPArray).
         parsed_records: list of attribute-id->value dicts, one per service
               record returned (used for terse display + GATT detection).
+
+    source_bdaddr (optional): local controller BDADDR to bind to, for `--hci`.
     """
     pdus = []
-    sock = _open_l2cap(bdaddr_colon, SDP_PSM, timeout)
+    sock = _open_l2cap(bdaddr_colon, SDP_PSM, timeout, source_bdaddr=source_bdaddr)
     try:
         # Get the actual L2CAP MTU for the connection so we can populate the
         # l2cap_len field in BTIDES entries with realistic numbers.
@@ -384,38 +460,50 @@ def detect_gatt_support(parsed_records):
 # ATT-over-BR/EDR GATT enumeration
 # ---------------------------------------------------------------------------
 
-def gatt_browse_btc(bdaddr_colon, timeout=10.0):
-    """Enumerate GATT services & characteristics over BR/EDR (PSM 0x001F).
+def gatt_browse_btc(bdaddr_colon, timeout=10.0, source_bdaddr=None):
+    """Enumerate GATT services + characteristics + descriptors over BR/EDR.
 
-    Returns a list of service dicts (as ff_GATT_Service shape), each with an
+    Per characteristic:
+      * If the Read property bit is set, issue ATT_READ_REQ against value_handle
+        and capture the result (or ATT_ERROR_RSP code) as a CharacteristicValue
+        with an io_array entry.
+      * Discover all descriptors in the gap between this characteristic's
+        value_handle+1 and the next characteristic's handle-1 (or the service's
+        end_handle for the trailing characteristic) via ATT_FIND_INFORMATION_REQ.
+      * For well-known descriptor UUIDs (2900-2904), read the descriptor's value
+        and emit a typed BTIDES Descriptor29xx object. 2901 (User Description)
+        gets both the raw hex and the UTF-8 decode where decodable.
+
+    source_bdaddr (optional): local controller BDADDR to bind to, for `--hci`.
+
+    Returns a list of service dicts (ff_GATT_Service shape) each with an
     embedded "characteristics" list. Returns [] on any connection failure.
     """
     try:
-        sock = _open_l2cap(bdaddr_colon, ATT_PSM, timeout)
+        sock = _open_l2cap(bdaddr_colon, ATT_PSM, timeout, source_bdaddr=source_bdaddr)
     except OSError as e:
         qprint(f"  GATT-over-BR/EDR connect to PSM 0x{ATT_PSM:04x} failed: {e}")
         return []
 
     services = []
     try:
-        # MTU exchange; nice to have, ignore the response details — we only need
-        # ATT default-MTU (23) semantics for the enumeration to succeed.
-        try:
-            sock.send(struct.pack("<BH", type_ATT_EXCHANGE_MTU_REQ, 517))
-            sock.recv(512)
-        except (socket.timeout, OSError):
-            pass
+        mtu = _att_exchange_mtu(sock, requested=517)
+        if(TME.TME_glob.verbose_print):
+            qprint(f"  Negotiated ATT MTU: {mtu}")
 
         # Discover primary services via ATT_READ_BY_GROUP_TYPE_REQ for 0x2800.
         services = _att_read_by_group_type_loop(sock, 0x2800, "2800")
 
-        # For each service, enumerate characteristics.
+        # For each service, enumerate characteristics, then enrich each char with
+        # its value (where readable) and its descriptors.
         for svc in services:
             chars = _att_read_by_type_characteristics(
                 sock, svc["begin_handle"], svc["end_handle"],
             )
-            if chars:
-                svc["characteristics"] = chars
+            if not chars:
+                continue
+            svc["characteristics"] = chars
+            _enrich_characteristics(sock, svc, chars, mtu)
     finally:
         try:
             sock.close()
@@ -423,6 +511,278 @@ def gatt_browse_btc(bdaddr_colon, timeout=10.0):
             pass
 
     return services
+
+
+def _att_exchange_mtu(sock, requested):
+    """Negotiate ATT MTU. Returns the agreed MTU (defaults to 23 on failure)."""
+    try:
+        sock.send(struct.pack("<BH", type_ATT_EXCHANGE_MTU_REQ, requested))
+        rsp = sock.recv(512)
+    except (socket.timeout, OSError):
+        return 23
+    if not rsp or rsp[0] != type_ATT_EXCHANGE_MTU_RSP or len(rsp) < 3:
+        return 23
+    server_mtu, = struct.unpack("<H", rsp[1:3])
+    return max(23, min(requested, server_mtu))
+
+
+def _enrich_characteristics(sock, svc, chars, mtu):
+    """For each characteristic: optionally read its value, then enumerate its
+    descriptors. Mutates `chars` in place so the BTIDES output gains
+    `char_value` and `descriptors` keys where applicable."""
+    for i, char in enumerate(chars):
+        # 1. Read the characteristic value if the Read property is advertised.
+        if char.get("properties", 0) & CHAR_PROP_READ:
+            io_entry = _att_read_full(sock, char["value_handle"], mtu)
+            if io_entry is not None:
+                char["char_value"] = ff_GATT_Characteristic_Value({
+                    "handle": char["value_handle"],
+                    "value_uuid": char["value_uuid"],
+                    "io_array": [io_entry],
+                })
+
+        # 2. Compute this characteristic's descriptor handle range. The range
+        #    runs from the byte after the value handle up to either the next
+        #    characteristic's declaration handle minus one, or the service's
+        #    end_handle for the trailing characteristic.
+        desc_start = char["value_handle"] + 1
+        if i + 1 < len(chars):
+            desc_end = chars[i + 1]["handle"] - 1
+        else:
+            desc_end = svc["end_handle"]
+        if desc_start > desc_end:
+            continue
+
+        # 3. Enumerate descriptors in [desc_start, desc_end] and read any
+        #    well-known ones (2900..2904).
+        descriptors = _enumerate_and_read_descriptors(sock, desc_start, desc_end, mtu)
+        if descriptors:
+            char["descriptors"] = descriptors
+
+
+def _att_read_handle(sock, handle):
+    """Send ATT_READ_REQ; return (status, payload).
+
+    status ==  True  -> payload is the read value bytes
+    status == False  -> payload is the 1-byte ATT error code (int)
+    status is None   -> transport failure (recv timed out, or unexpected pdu)
+    """
+    try:
+        sock.send(struct.pack("<BH", type_ATT_READ_REQ, handle))
+        rsp = sock.recv(512)
+    except (socket.timeout, OSError):
+        return None, None
+    if not rsp:
+        return None, None
+    if rsp[0] == type_ATT_ERROR_RSP and len(rsp) >= 5:
+        return False, rsp[4]
+    if rsp[0] == type_ATT_READ_RSP:
+        return True, rsp[1:]
+    return None, None
+
+
+def _att_read_blob(sock, handle, offset):
+    """Send ATT_READ_BLOB_REQ at offset; return (status, payload) like above."""
+    try:
+        sock.send(struct.pack("<BHH", type_ATT_READ_BLOB_REQ, handle, offset))
+        rsp = sock.recv(512)
+    except (socket.timeout, OSError):
+        return None, None
+    if not rsp:
+        return None, None
+    if rsp[0] == type_ATT_ERROR_RSP and len(rsp) >= 5:
+        return False, rsp[4]
+    if rsp[0] == type_ATT_READ_BLOB_RSP:
+        return True, rsp[1:]
+    return None, None
+
+
+def _att_read_full(sock, handle, mtu):
+    """Read a complete attribute value (initial ATT_READ_REQ + blob continuations
+    when the response fills MTU-1). Returns a GATTIO dict ready to drop into
+    a CharacteristicValue io_array, or None if the transport collapsed before
+    any byte was read.
+
+    The BTIDES schema requires the io_array entry to record `io_type` +
+    `value_hex_str`, so on ATT_ERROR_RSP we surface the 1-byte error code as a
+    2-character hex string (matching what other tools in this repo emit)."""
+    status, payload = _att_read_handle(sock, handle)
+    if status is None:
+        return None
+    if status is False:
+        return {
+            "io_type": type_ATT_ERROR_RSP,
+            "value_hex_str": f"{payload:02x}",
+        }
+    value = payload
+    chunk_max = mtu - 1
+    # If the first response fills MTU-1, the value may be longer; ATT spec
+    # requires us to use ATT_READ_BLOB_REQ to fetch the rest.
+    while len(payload) == chunk_max:
+        status, payload = _att_read_blob(sock, handle, len(value))
+        if status is None:
+            break
+        if status is False:
+            # Attribute Not Long means we already have the full value;
+            # any other error means stop and keep what we have.
+            break
+        if not payload:
+            break
+        value += payload
+    return {
+        "io_type": type_ATT_READ_RSP,
+        "value_hex_str": value.hex(),
+    }
+
+
+def _enumerate_and_read_descriptors(sock, start, end, mtu):
+    """Walk ATT_FIND_INFORMATION_REQ across [start, end]. For each well-known
+    descriptor UUID (2900..2904), issue ATT_READ_REQ and produce a typed BTIDES
+    Descriptor29xx dict. Descriptors with custom (non-well-known) UUIDs are
+    skipped because the BTIDES schema's `descriptors` array only allows the
+    five spec-defined shapes."""
+    descriptors = []
+    cursor = start
+    while cursor <= end and cursor <= 0xFFFF:
+        try:
+            sock.send(struct.pack("<BHH", type_ATT_FIND_INFORMATION_REQ, cursor, end))
+            rsp = sock.recv(512)
+        except (socket.timeout, OSError):
+            break
+        if not rsp or rsp[0] == type_ATT_ERROR_RSP:
+            break
+        if rsp[0] != type_ATT_FIND_INFORMATION_RSP or len(rsp) < 2:
+            break
+        fmt = rsp[1]
+        body = rsp[2:]
+        if fmt == 0x01:
+            entry_size = 4   # 2 bytes handle + 2 bytes UUID16
+        elif fmt == 0x02:
+            entry_size = 18  # 2 bytes handle + 16 bytes UUID128
+        else:
+            break
+        if len(body) < entry_size:
+            break
+        last_handle = 0
+        for off in range(0, len(body), entry_size):
+            entry = body[off:off + entry_size]
+            if len(entry) < entry_size:
+                break
+            handle = struct.unpack("<H", entry[:2])[0]
+            uuid_bytes = entry[2:]
+            if fmt == 0x01:
+                uuid_str = f"{struct.unpack('<H', uuid_bytes)[0]:04x}"
+            else:
+                # UUID128 is little-endian on the wire; flip for the
+                # human/canonical big-endian hex string.
+                uuid_str = uuid_bytes[::-1].hex()
+            descriptor = _build_typed_descriptor(sock, handle, uuid_str, mtu)
+            if descriptor is not None:
+                descriptors.append(descriptor)
+            last_handle = handle
+        if last_handle == 0 or last_handle >= end or last_handle == 0xFFFF:
+            break
+        cursor = last_handle + 1
+    return descriptors
+
+
+def _safe_utf8(payload):
+    """Decode bytes as UTF-8 without exceptions. Returns '' on failure."""
+    try:
+        return payload.decode("utf-8")
+    except (UnicodeDecodeError, AttributeError):
+        return ""
+
+
+def _build_typed_descriptor(sock, handle, uuid_str, mtu):
+    """Read the descriptor value for one of the five spec-defined descriptor
+    UUIDs and shape it into the matching BTIDES Descriptor29xx object.
+    Returns None for unknown UUIDs or read failures (we only emit objects we
+    can fully populate; the schema demands the type-specific fields)."""
+
+    # 0x2900 — Characteristic Extended Properties (2 bytes, uint16 LE)
+    if uuid_str == "2900":
+        status, payload = _att_read_handle(sock, handle)
+        if status is True and len(payload) >= 2:
+            ext, = struct.unpack("<H", payload[:2])
+            return ff_Descriptor({
+                "UUID": "2900",
+                "handle": handle,
+                "extended_properties": ext,
+            })
+
+    # 0x2901 — Characteristic User Description (UTF-8 string)
+    if uuid_str == "2901":
+        status, payload = _att_read_full_bytes(sock, handle, mtu)
+        if status is True:
+            entry = {
+                "UUID": "2901",
+                "handle": handle,
+                "user_description_hex_str": payload.hex(),
+            }
+            decoded = _safe_utf8(payload)
+            if decoded:
+                entry["utf8_user_description"] = decoded
+            return ff_Descriptor(entry)
+
+    # 0x2902 — Client Characteristic Configuration (2 bytes, uint16 LE)
+    if uuid_str == "2902":
+        status, payload = _att_read_handle(sock, handle)
+        if status is True and len(payload) >= 2:
+            cfg, = struct.unpack("<H", payload[:2])
+            return ff_Descriptor({
+                "UUID": "2902",
+                "handle": handle,
+                "config_bits": cfg,
+            })
+
+    # 0x2903 — Server Characteristic Configuration (2 bytes, uint16 LE)
+    if uuid_str == "2903":
+        status, payload = _att_read_handle(sock, handle)
+        if status is True and len(payload) >= 2:
+            cfg, = struct.unpack("<H", payload[:2])
+            return ff_Descriptor({
+                "UUID": "2903",
+                "handle": handle,
+                "config_bits": cfg,
+            })
+
+    # 0x2904 — Characteristic Presentation Format
+    #   format(1) | exponent(int8) | unit(uint16 LE) | name_space(1) | description(uint16 LE)
+    if uuid_str == "2904":
+        status, payload = _att_read_handle(sock, handle)
+        if status is True and len(payload) >= 7:
+            fmt, exp, unit, ns, desc = struct.unpack("<BbHBH", payload[:7])
+            return ff_Descriptor({
+                "UUID": "2904",
+                "handle": handle,
+                "format": fmt,
+                "exponent": exp,
+                "unit": unit,
+                "name_space": ns,
+                "description": desc,
+            })
+
+    # 0x2905 — Aggregate format etc: schema includes Descriptor2905 but its
+    # body shape is not well-defined; skip until we have a concrete need.
+    return None
+
+
+def _att_read_full_bytes(sock, handle, mtu):
+    """Like _att_read_full() but returns (status, raw_bytes) rather than a
+    GATTIO dict. Used by descriptor readers that need the raw value to repack
+    into per-UUID schema fields."""
+    status, payload = _att_read_handle(sock, handle)
+    if status is None or status is False:
+        return status, payload
+    value = payload
+    chunk_max = mtu - 1
+    while len(payload) == chunk_max:
+        status, payload = _att_read_blob(sock, handle, len(value))
+        if status is None or status is False or not payload:
+            break
+        value += payload
+    return True, value
 
 
 def _att_read_by_group_type_loop(sock, group_uuid16, utype_str):
@@ -677,6 +1037,213 @@ def write_gatt_btides(out_path, bdaddr_colon, gatt_services):
 
 
 # ---------------------------------------------------------------------------
+# BlueZ pairing agent (org.bluez.Agent1)
+# ---------------------------------------------------------------------------
+#
+# Why this exists: connecting an L2CAP socket to PSM 0x001f (ATT-over-BR/EDR)
+# on a peer that requires authentication causes the BR/EDR controller to
+# initiate Secure Simple Pairing during the connect itself. bluetoothd then
+# needs an Agent (org.bluez.Agent1) to display or input the SSP passkey on
+# our behalf — without one, pairing stalls and our connect() times out at
+# the L2CAP layer with no useful error. The same applies to BLE SMP when
+# the peer asks for an authenticated bond.
+#
+# We register a transient agent before the GATT phase, route DisplayPasskey /
+# RequestPasskey / RequestConfirmation / etc. to stdout/stdin, and unregister
+# afterwards. The IO capability is configurable so the user can shape SSP/SMP
+# negotiation to whichever interaction they actually have available
+# (terminal-only Pi: KeyboardDisplay; scripted batch: NoInputNoOutput).
+
+BLUEZ_BUS_NAME       = "org.bluez"
+BLUEZ_AGENT_PATH     = "/com/darkmentor/Blue2thprinting/SdpGattAgent"
+BLUEZ_AGENT_IFACE    = "org.bluez.Agent1"
+BLUEZ_AGENT_MGR_PATH = "/org/bluez"
+BLUEZ_AGENT_MGR_IFACE = "org.bluez.AgentManager1"
+
+VALID_IO_CAPABILITIES = (
+    "DisplayOnly", "DisplayYesNo", "KeyboardOnly",
+    "KeyboardDisplay", "NoInputNoOutput",
+)
+
+
+def _build_pairing_agent_class():
+    """Lazily import dbus_fast and return a PairingAgent class.
+
+    Wrapping the import keeps the rest of btc_sdp_gatt.py importable on
+    systems without dbus_fast (e.g. an analysis venv that doesn't include
+    capture-side deps); the module just won't be able to use --io-capability
+    until dbus_fast is installed.
+    """
+    from dbus_fast.service import ServiceInterface, method
+    from dbus_fast import DBusError
+
+    class PairingAgent(ServiceInterface):
+        def __init__(self, static_passkey=None, no_interactive=False):
+            super().__init__(BLUEZ_AGENT_IFACE)
+            # Optional pre-supplied passkey for non-interactive scripted use.
+            # When set, RequestPasskey / RequestPinCode return it without
+            # prompting; RequestConfirmation auto-confirms; the operator never
+            # has to be at the terminal.
+            self._static_passkey = static_passkey
+            # Headless / autonomous mode (set by --no-interactive-pairing on
+            # the CLI). Reject any pairing flow that would normally need typed
+            # input — Passkey Entry, legacy PIN, Numeric Comparison — by
+            # raising org.bluez.Error.Rejected immediately rather than
+            # blocking the launcher on input(). Just Works (single
+            # RequestAuthorization, no typed value) still goes through.
+            self._no_interactive = no_interactive
+
+        async def _read_line(self, prompt):
+            # input() is blocking; run in a worker thread so dbus_fast's event
+            # loop keeps processing other messages (e.g. a follow-up Cancel).
+            return (await asyncio.to_thread(input, prompt)).strip()
+
+        def _reject_interactive(self, kind):
+            qprint(
+                f"[agent] {kind} requested but --no-interactive-pairing is "
+                f"set; rejecting to fail-fast back to bluetoothd."
+            )
+            raise DBusError("org.bluez.Error.Rejected",
+                            f"{kind} not supported in non-interactive mode")
+
+        @method()
+        def Release(self):  # noqa: N802 — D-Bus method name
+            qprint("[agent] Released by bluetoothd.")
+
+        @method()
+        async def RequestPinCode(self, device: 'o') -> 's':  # noqa: N802
+            qprint(f"[agent] PIN code requested for {device}.")
+            if self._no_interactive:
+                self._reject_interactive("Legacy PIN entry")
+            if self._static_passkey is not None:
+                return str(self._static_passkey)
+            return await self._read_line("[agent] Enter PIN code (1-16 chars): ")
+
+        @method()
+        def DisplayPinCode(self, device: 'o', pincode: 's'):  # noqa: N802
+            # bluetoothd shouldn't call this on a NoInputNoOutput agent, but if
+            # it does (legacy PIN flow with display capability advertised by
+            # the remote), there's nothing we can usefully do headless — log
+            # and let the natural pair timeout end the flow.
+            qprint(f"[agent] DISPLAY PIN CODE for {device}: {pincode}")
+
+        @method()
+        async def RequestPasskey(self, device: 'o') -> 'u':  # noqa: N802
+            qprint(f"[agent] Passkey requested for {device}.")
+            if self._no_interactive:
+                self._reject_interactive("Passkey Entry")
+            if self._static_passkey is not None:
+                return int(self._static_passkey)
+            while True:
+                line = await self._read_line(
+                    "[agent] Enter passkey (decimal 000000-999999): "
+                )
+                try:
+                    val = int(line)
+                except ValueError:
+                    qprint("[agent]   Not an integer; try again.")
+                    continue
+                if not 0 <= val <= 999999:
+                    qprint("[agent]   Out of 0..999999 range; try again.")
+                    continue
+                return val
+
+        @method()
+        def DisplayPasskey(self, device: 'o', passkey: 'u', entered: 'q'):  # noqa: N802
+            # `entered` is how many digits the remote has typed so far when
+            # our IO capability says we're displaying for them. With
+            # NoInputNoOutput this method shouldn't be called by bluetoothd;
+            # log if it ever is so we can spot the spec violation.
+            qprint(
+                f"[agent] DISPLAY PASSKEY for {device}: {passkey:06d} "
+                f"({entered}/6 entered on remote)"
+            )
+
+        @method()
+        async def RequestConfirmation(self, device: 'o', passkey: 'u'):  # noqa: N802
+            qprint(f"[agent] CONFIRM PASSKEY for {device}: {passkey:06d}")
+            if self._no_interactive:
+                # Numeric Comparison requires a human looking at both sides.
+                # Reject so bluetoothd aborts the pair rather than waiting.
+                self._reject_interactive("Numeric Comparison")
+            if self._static_passkey is not None:
+                qprint("[agent]   Auto-confirming (static passkey supplied).")
+                return
+            ans = await self._read_line("[agent]   Confirm match on both ends? [y/N]: ")
+            if ans.lower() not in ("y", "yes"):
+                raise DBusError("org.bluez.Error.Rejected", "User rejected confirmation")
+
+        @method()
+        async def RequestAuthorization(self, device: 'o'):  # noqa: N802
+            qprint(f"[agent] AUTHORIZATION requested for {device} (legacy 'Just Works').")
+            # Just Works: no typed value, just a single yes/no. Auto-allow
+            # in non-interactive mode (the whole point of Just Works is that
+            # it can complete without operator input) and when a static
+            # passkey was supplied (operator opted into autopilot).
+            if self._no_interactive or self._static_passkey is not None:
+                return
+            ans = await self._read_line("[agent]   Authorize this pairing? [y/N]: ")
+            if ans.lower() not in ("y", "yes"):
+                raise DBusError("org.bluez.Error.Rejected", "User rejected authorization")
+
+        @method()
+        def AuthorizeService(self, device: 'o', uuid: 's'):  # noqa: N802
+            # Per-service authorization (BR/EDR profile-level). Auto-allow —
+            # if the user paired the device they implicitly trust its services.
+            qprint(f"[agent] AUTHORIZE SERVICE {uuid} for {device} (auto-allowed).")
+
+        @method()
+        def Cancel(self):  # noqa: N802
+            qprint("[agent] Pairing cancelled by remote / bluetoothd.")
+
+    return PairingAgent
+
+
+async def _gatt_browse_with_agent(bdaddr_colon, timeout, io_capability,
+                                  static_passkey=None, no_interactive=False,
+                                  source_bdaddr=None):
+    """Run gatt_browse_btc with a transient org.bluez.Agent1 registered.
+
+    bluetoothd routes SSP/SMP IO callbacks to whichever agent is "default";
+    we register, request-default, run the enumeration, then unregister.
+    Returns the same shape as gatt_browse_btc().
+    """
+    from dbus_fast.aio import MessageBus
+    from dbus_fast import BusType
+
+    PairingAgent = _build_pairing_agent_class()
+    bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+    try:
+        agent = PairingAgent(static_passkey=static_passkey,
+                             no_interactive=no_interactive)
+        bus.export(BLUEZ_AGENT_PATH, agent)
+        introspect = await bus.introspect(BLUEZ_BUS_NAME, BLUEZ_AGENT_MGR_PATH)
+        proxy = bus.get_proxy_object(BLUEZ_BUS_NAME, BLUEZ_AGENT_MGR_PATH, introspect)
+        mgr = proxy.get_interface(BLUEZ_AGENT_MGR_IFACE)
+        await mgr.call_register_agent(BLUEZ_AGENT_PATH, io_capability)
+        try:
+            await mgr.call_request_default_agent(BLUEZ_AGENT_PATH)
+        except Exception as e:
+            # Non-fatal: another agent may already hold default. Our agent is
+            # still registered and will handle requests addressed to it
+            # (which is what bluetoothd does for the device we initiated).
+            qprint(f"[agent] RequestDefaultAgent failed (non-fatal): {e}")
+        qprint(f"[agent] Registered with IO capability '{io_capability}'.")
+        try:
+            services = await asyncio.to_thread(
+                gatt_browse_btc, bdaddr_colon, timeout, source_bdaddr)
+        finally:
+            try:
+                await mgr.call_unregister_agent(BLUEZ_AGENT_PATH)
+                qprint("[agent] Unregistered.")
+            except Exception as e:
+                qprint(f"[agent] UnregisterAgent failed (non-fatal): {e}")
+        return services
+    finally:
+        bus.disconnect()
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -696,6 +1263,14 @@ def main():
     )
     parser.add_argument('--bdaddr', type=str, required=True,
                         help='Target BT Classic BDADDR (AA:BB:CC:DD:EE:FF or with dashes).')
+    parser.add_argument('--hci', type=int, default=None,
+                        help=('Bind L2CAP sockets to a specific local HCI '
+                              'adapter (e.g. --hci 0 for hci0, --hci 1 for '
+                              'hci1). The local controller BDADDR is read '
+                              'from /sys/class/bluetooth/hciN/address and '
+                              'passed to bind() so the kernel routes both '
+                              'the SDP and ATT connects through that adapter. '
+                              'Default: leave the routing to the kernel.'))
     parser.add_argument('--timeout', type=float, default=10.0,
                         help='L2CAP receive timeout in seconds (default: 10).')
     parser.add_argument('--output-dir', type=str, default=None,
@@ -706,6 +1281,48 @@ def main():
     parser.add_argument('--force-gatt', action='store_true',
                         help='Attempt GATT enumeration even if SDP did not indicate support.')
 
+    pairing = parser.add_argument_group(
+        'Pairing arguments',
+        ('A BlueZ Agent (org.bluez.Agent1) is registered before opening the '
+         'ATT L2CAP socket so SSP/SMP passkey prompts triggered by the '
+         'connect are routed to this terminal instead of stalling bluetoothd. '
+         'The default IO capability prefers Just Works; only override it when '
+         'the remote forces a stronger association model. Requires dbus_fast '
+         '(capture-side venv has it).'))
+    pairing.add_argument(
+        '--io-capability', choices=VALID_IO_CAPABILITIES, default='NoInputNoOutput',
+        help=('IO capability to register with. Default: NoInputNoOutput, which '
+              'requests Just Works whenever the remote permits it (no human '
+              'interaction; the agent simply auto-allows). Use KeyboardDisplay '
+              'when the remote requires authenticated bonding (MITM) — that '
+              'lets us handle both Numeric Comparison and Passkey Entry. Only '
+              'pick one of the narrower capabilities (DisplayOnly, '
+              'DisplayYesNo, KeyboardOnly) when you specifically want to '
+              'shape the negotiation that way.'))
+    pairing.add_argument(
+        '--no-pairing-agent', action='store_true',
+        help=('Skip agent registration entirely (legacy behaviour). Useful if '
+              'bluetoothctl or another tool already owns the default agent on '
+              'this system and you do not want to displace it. Mutually '
+              'exclusive with --io-capability and --passkey.'))
+    pairing.add_argument(
+        '--passkey', type=str, default=None,
+        help=('Pre-supplied passkey/PIN for non-interactive pairing. Returned '
+              'from RequestPasskey/RequestPinCode without prompting; '
+              'RequestConfirmation auto-confirms. Implies --io-capability '
+              'KeyboardOnly when --io-capability is left at its NoInputNoOutput '
+              'default (otherwise a static passkey would never be asked for).'))
+    pairing.add_argument(
+        '--no-interactive-pairing', action='store_true',
+        help=('Headless / autonomous mode (intended for invocations from '
+              'central_app_launcher.py). Forces --io-capability NoInputNoOutput '
+              'so SSP/SMP picks Just Works whenever the remote allows it, and '
+              'fails fast (raises org.bluez.Error.Rejected immediately) if the '
+              'remote forces Passkey Entry, Numeric Comparison, or legacy PIN '
+              'entry — those need a human at the terminal. RequestAuthorization '
+              '(the single Just Works yes/no with no typed value) is still '
+              'auto-allowed. Mutually exclusive with --passkey.'))
+
     printout_group = parser.add_argument_group('Print verbosity arguments')
     printout_group.add_argument('--verbose-print', action='store_true',
                                 help='Show explicit data-not-found output and per-PDU details.')
@@ -715,6 +1332,24 @@ def main():
                                 help='Hide all print output.')
 
     args = parser.parse_args()
+
+    # CLI mutex checks (run before any I/O so bad invocations exit immediately).
+    if args.no_interactive_pairing and args.passkey is not None:
+        print("Error: --no-interactive-pairing is incompatible with --passkey "
+              "(a supplied passkey would never be reachable when interactive "
+              "pairing flows are rejected fast).", file=sys.stderr)
+        return 2
+
+    # Resolve --hci to a local controller BDADDR for L2CAP bind(). Done up
+    # front so a typo (`--hci 5` on a 2-adapter box) fails before any
+    # connect attempt.
+    source_bdaddr = None
+    if args.hci is not None:
+        try:
+            source_bdaddr = _hci_address(args.hci)
+        except RuntimeError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 2
 
     TME.TME_glob.verbose_print = args.verbose_print
     TME.TME_glob.verbose_BTIDES = args.verbose_BTIDES
@@ -733,7 +1368,8 @@ def main():
 
     qprint(f"Connecting to {bdaddr} for SDP browse...")
     try:
-        pdus, records = sdp_browse(bdaddr, timeout=args.timeout)
+        pdus, records = sdp_browse(bdaddr, timeout=args.timeout,
+                                   source_bdaddr=source_bdaddr)
     except RuntimeError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -755,8 +1391,69 @@ def main():
                "use --force-gatt to try anyway).")
         return 0
 
+    # Resolve effective IO capability:
+    #   --no-pairing-agent: skip agent entirely (legacy behaviour).
+    #   --no-interactive-pairing: force NoInputNoOutput so SSP/SMP nudges
+    #       toward Just Works regardless of what --io-capability said. The
+    #       agent's reject-interactive guard is the safety net for cases
+    #       where the remote forces a stronger model.
+    #   --passkey set + --io-capability still at its NoInputNoOutput default:
+    #       upgrade to KeyboardOnly so the agent will actually be asked to
+    #       supply the passkey (NIO would short-circuit to Just Works and
+    #       never call RequestPasskey).
+    #   Otherwise use whatever --io-capability resolved to (default NIO).
+    io_capability = None if args.no_pairing_agent else args.io_capability
+    if args.no_interactive_pairing:
+        io_capability = "NoInputNoOutput"
+    elif (io_capability == "NoInputNoOutput"
+            and args.passkey is not None
+            # Was --io-capability explicitly given? If so, respect it; the
+            # default-comparison heuristic only kicks in when the user left
+            # it at the default.
+            and "--io-capability" not in sys.argv):
+        io_capability = "KeyboardOnly"
+
     qprint(f"Connecting to {bdaddr} on PSM 0x{ATT_PSM:04x} for GATT enumeration...")
-    services = gatt_browse_btc(bdaddr, timeout=args.timeout)
+    if io_capability is None:
+        services = gatt_browse_btc(bdaddr, timeout=args.timeout,
+                                   source_bdaddr=source_bdaddr)
+    else:
+        # When pairing is enabled the L2CAP connect blocks until SSP/SMP
+        # finishes. Two regimes:
+        #
+        #   --no-interactive-pairing: there's no human at this terminal, so
+        #     the only pairings we can complete are Just Works (sub-5s) and
+        #     anything our agent auto-allows. If the remote forces MITM
+        #     (Numeric Comparison / Passkey Entry / legacy PIN) bluetoothd
+        #     will NOT call our agent — it knows our NoInputNoOutput
+        #     capability can't satisfy that flow — so the L2CAP connect
+        #     just hangs until the remote's pair UI resolves. Cap the
+        #     timeout aggressively (use --timeout, default 10s) so we move
+        #     on instead of waiting on a human at the *other* end too.
+        #
+        #   Interactive: a human typing a passkey here can easily take a
+        #     minute, so the 90s floor still applies.
+        if args.no_interactive_pairing:
+            gatt_timeout = args.timeout
+        else:
+            gatt_timeout = max(args.timeout, 90.0)
+        try:
+            services = asyncio.run(_gatt_browse_with_agent(
+                bdaddr, gatt_timeout, io_capability,
+                static_passkey=args.passkey,
+                no_interactive=args.no_interactive_pairing,
+                source_bdaddr=source_bdaddr,
+            ))
+        except ImportError as e:
+            print(f"Error: pairing agent requires dbus_fast: {e}", file=sys.stderr)
+            print("       Pass --no-pairing-agent to skip the agent and use the legacy code path.",
+                  file=sys.stderr)
+            return 1
+        if not services and io_capability == "NoInputNoOutput":
+            qprint("  Hint: if the remote requires MITM-authenticated bonding, "
+                   "Just Works will be refused. Retry with "
+                   "--io-capability KeyboardDisplay (or KeyboardOnly + --passkey "
+                   "for non-interactive runs).")
     if not services:
         qprint("  GATT enumeration produced no services.")
         return 0
