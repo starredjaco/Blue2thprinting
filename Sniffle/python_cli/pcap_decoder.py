@@ -15,6 +15,8 @@ def main():
     aparse.add_argument("pcap", help="PCAP input file name")
     aparse.add_argument("-q", "--quiet", action="store_true",
             help="Don't display empty packets")
+    aparse.add_argument("--hide-adv-ext-ind", action="store_true",
+            help="Don't display ADV_EXT_IND packets")
     aparse.add_argument("-d", "--decode", action="store_true",
             help="Decode advertising data")
     args = aparse.parse_args()
@@ -22,9 +24,12 @@ def main():
     pcreader = PcapBleReader(args.pcap)
 
     for pkt in pcreader:
-        print_packet(pkt, args.quiet, args.decode)
+        print_packet(pkt, args.quiet, args.decode, args.hide_adv_ext_ind)
 
-def print_packet(dpkt, quiet, decode_ad):
+def print_packet(dpkt, quiet, decode_ad, hide_adv_ext_ind=False):
+    if hide_adv_ext_ind and type(dpkt) is AdvExtIndMessage:
+        return
+
     if isinstance(dpkt, (AdvaMessage, AdvDirectIndMessage, ScanRspMessage,
                          AdvExtIndMessage)):
             print(dpkt.str_header())

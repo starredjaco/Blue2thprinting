@@ -17,6 +17,7 @@ state machines.
 | `test_gatt.py` | `BG_Helper_GATT`/`BG_Helper_ATT` — ATT packet-type matching, MTU exchange (REQ/RSP both directions), Read by Group Type for Primary/Secondary services (UUID16 + UUID128 entries), Find Information for handle enumeration, ATT_READ_REQ value reads, error-response handling (Attribute Not Found, Read Not Permitted, Insufficient Authentication), `get_next_handle_to_att_read` service-handle skipping |
 | `test_pcap_replay.py` | End-to-end replay of `fixtures/cafe_capture.pcap` (354 frames captured from CA:FE:13:37:00:01) through the BG state machines; asserts the full pipeline reaches each terminal state in order |
 | `test_cli.py` | argparse — `--help` smoke, `--advchan` value validation, `-2`/`-A`/`-q`/`-l`/`-P` flag toggles, BDADDR validation (missing / malformed / valid hex pairs), output-PCAP wiring, all binary flag combinations against a mocked `SniffleHW` |
+| `test_sniffle_canonical.py` | BG imports the canonical Sniffle package and encodes the requested connection timeout in the CONNECT_IND data |
 
 ## Test data
 

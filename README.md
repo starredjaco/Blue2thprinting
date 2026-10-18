@@ -23,6 +23,10 @@ to only rebuild it. Source lives in `Sniffle/sniffle_receiver_rust_src/` (the `_
 suffix keeps the cargo project dir distinct from the deployed binary at
 `Sniffle/sniffle_receiver_rust`) with build/usage docs in its own README.
 
+The maintained Python Sniffle package is `Sniffle/python_cli/sniffle`. Scripts in
+`Scripts/BG` load that package through `Scripts/BG/sniffle/__init__.py`, so BG and
+the Sniffle CLI use the same implementation.
+
 If you have data from running Blue2thprinting before tag `2.2.0`, you will need to execute the following commands to migrate the table names after tag `2.2.0` (commit `ac416c8c2f78a93038be15ecdec6a62913d97ad9`):
 
 ```

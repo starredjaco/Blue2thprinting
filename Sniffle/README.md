@@ -248,7 +248,7 @@ the device using JTAG/SWD.
 [skhan@serpent python_cli]$ ./sniff_receiver.py --help
 usage: sniff_receiver.py [-h] [-s SERPORT] [-b BAUDRATE] [-c {37,38,39}] [-p] [-r RSSI]
                          [-m MAC] [-i IRK] [-S STRING] [-a] [-A] [-e] [-H] [-l] [-q]
-                         [-Q PRELOAD] [-n] [-C] [-d] [-o OUTPUT]
+                         [--hide-adv-ext-ind] [-Q PRELOAD] [-n] [-C] [-d] [-o OUTPUT]
 
 Host-side receiver for Sniffle BLE5 sniffer
 
@@ -272,6 +272,7 @@ options:
   -H, --hop             Hop primary advertising channels in extended mode
   -l, --longrange       Use long range (coded) PHY for primary advertising
   -q, --quiet           Don't display empty packets
+  --hide-adv-ext-ind    Don't display ADV_EXT_IND packets
   -Q PRELOAD, --preload PRELOAD
                         Preload expected encrypted connection parameter changes
   -n, --nophychange     Ignore encrypted PHY mode changes
@@ -280,6 +281,11 @@ options:
   -o OUTPUT, --output OUTPUT
                         PCAP output file name
 ```
+
+Use `--hide-adv-ext-ind` to suppress primary `ADV_EXT_IND` packets from terminal
+output. This does not hide auxiliary advertising packet types or omit packets
+from PCAP output. The option is also available in `pcap_decoder.py`. Decoded
+data-channel packet headers display their access address as `AA: 0x12345678`.
 
 The XDS110 debugger on the Launchpad boards creates two serial ports. On
 Linux, they are typically named `ttyACM0` and `ttyACM1`. The first of the
