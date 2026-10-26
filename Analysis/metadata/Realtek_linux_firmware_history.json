@@ -1,9 +1,10 @@
 {
   "schema_version": 2,
   "description": "Realtek patched-controller SubVersNr fingerprints mined from current and historical official linux-firmware rtl_bt images.",
-  "source_repository": "https://gitlab.com/kernel-firmware/linux-firmware/-/tree/main/rtl_bt",
-  "file_history_url_template": "https://gitlab.com/kernel-firmware/linux-firmware/-/commits/main/rtl_bt/{filename}",
-  "source_driver": "https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btrtl.c",
+  "source_repository": "https://web.archive.org/web/20261026123319/https://github.com/kernelorg-mirror/linux_kernel_git_firmware_linux-firmware/tree/main/rtl_bt",
+  "source_history": "https://web.archive.org/web/20261026123321/https://github.com/kernelorg-mirror/linux_kernel_git_firmware_linux-firmware/commits/main/rtl_bt",
+  "source_repository_note": "Archived GitHub mirror of the upstream linux-firmware repository.",
+  "source_driver": "https://web.archive.org/web/20260323045553/https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btrtl.c",
   "researched_through": "2026-09-22",
   "local_snapshot": "/lib/firmware/rtl_bt",
   "legacy_epatch_method": "For files beginning with ASCII Realtech, bytes 8..11 are the little-endian 32-bit firmware version. Linux copies that version into the downloaded patch; its low 16 bits become the reported SubVersNr.",
