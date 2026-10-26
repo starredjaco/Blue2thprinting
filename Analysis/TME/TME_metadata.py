@@ -11,6 +11,12 @@ from TME.TME_BTIDES_LLCP import *
 from TME.TME_BTIDES_LMP import *
 from TME.TME_BTIDES_AdvData import *
 from TME.TME_glob import i1, i2, i3, i4, i5 # Required for terser usage within print statements
+from TME.TME_LLCP import lookup_LL_VERSION_IND_metadata
+from TME.TME_LMP import lookup_LMP_VERSION_metadata
+from TME.TME_version_metadata import (
+    lookup_company_subversion_metadata,
+    metadata_chip_display_name,
+)
 
 ########################################
 # Metadata v2 helper functions
@@ -609,117 +615,71 @@ def print_ChipMakerPrint(bdaddr, bdaddr_random):
 # Chip Info
 ########################################
 
-# We currently have limited visibility into where sub-versions correlate to specific chip IDs. So this is just a PoC for now.
 def chip_by_sub_version(sub_version, device_BT_CID):
-    if(device_BT_CID == 15):
-        if(sub_version == 0x6308):
-            return "Broadcom BCM4387C2" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x6308.py
-        if(sub_version == 0x6206):
-            return "Broadcom BCM4345C1" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x6206.py
-        if(sub_version == 0x617e):
-            return "Broadcom BCM4345B0" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x617e.py
-        if(sub_version == 0x6119):
-            return "Broadcom BCM4345C0" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x6119.py
-        if(sub_version == 0x6109):
-            return "Broadcom BCM4335C0" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x6109.py
-        if(sub_version == 0x6103):
-            return "Broadcom BCM4355C0" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x6103.py
-        if(sub_version == 0x422a):
-            return "Broadcom BCM2070B0" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x422a.py
-        if(sub_version == 0x4228):
-            return "Broadcom BCM4378B1" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x4228.py
-        if(sub_version == 0x420e):
-            return "Broadcom BCM4347B1 or Cypress CYW20739B1 or Broadcom BCM4349B1" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x420e.py & https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x420e_iphone.py & https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x4208):
-            return "Cypress CYW20735B1" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x4208.py
-        if(sub_version == 0x4196):
-            return "Broadcom BCM20702A2" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x4196.py
-        if(sub_version == 0x411a):
-            return "Broadcom BCM4347B0" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x411a.py
-        if(sub_version == 0x4109):
-            return "Broadcom BCM4345B0" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x4109.py
-        if(sub_version == 0x3040):
-            return "Broadcom BCM4364B3" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x3040.py
-        if(sub_version == 0x3032):
-            return "Broadcom BCM4364B3" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x3032.py
-        if(sub_version == 0x240f):
-            return "Broadcom BCM4358A3" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x240f.py
-        if(sub_version == 0x2230):
-            return "Broadcom BCM20703A2" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x2230.py
-        if(sub_version == 0x220e):
-            return "Broadcom BCM20702A1" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x220e.py
-        if(sub_version == 0x220c):
-            return "Cypress CYW20819A1" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x220c.py
-        if(sub_version == 0x220b):
-            return "Cypress CYW20706" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x220b.py
-        if(sub_version == 0x2209):
-            return "Broadcom BCM43430A1" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x2209.py
-        if(sub_version == 0x21d0):
-            return "Broadcom BCM2046" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x21d0.py
-        if(sub_version == 0x21a9):
-            return "Broadcom BCM20703A1" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x21a9.py
-        if(sub_version == 0x2056):
-            return "Broadcom BCM4364B0" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x2056.py
-        if(sub_version == 0x203a):
-            return "Broadcom BCM4377B3" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x203a.py
-        if(sub_version == 0x2033):
-            return "Broadcom BCM4377B3" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x2033.py
-        if(sub_version == 0x1111):
-            return "Broadcom BCM4375B1" # from https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x1111.py
-        if(sub_version == 0x4103):
-            return "Broadcom BCM4330B1" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x410d):
-            return "Broadcom BCM4334B0" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x410e):
-            return "Broadcom BCM43341B0" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x4204):
-            return "Broadcom BCM2076B1" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x4406):
-            return "Broadcom BCM4324B3" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x4606):
-            return "Broadcom BCM4324B5" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x610c):
-            return "Broadcom BCM4354" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x2122):
-            return "Broadcom BCM4343A0" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x6606):
-            return "Broadcom BCM4345C0" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x230f):
-            return "Broadcom BCM4356A2" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x420d):
-            return "Broadcom BCM4349B1" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x4217):
-            return "Broadcom BCM4329B1" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x6106):
-            return "Broadcom BCM4359C0" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x4106):
-            return "Broadcom BCM4335A0" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x410c):
-            return "Broadcom BCM43430B0" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x2119):
-            return "Broadcom BCM4373A0" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c
-        if(sub_version == 0x2105):
-            return "Broadcom BCM20703A1" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c, technically from bcm_usb_subver_table, but I expect it to be the same between BT & USB (e.g. it was for 0x220e)
-        if(sub_version == 0x210b):
-            return "Broadcom BCM43142A0" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c, technically from bcm_usb_subver_table, but I expect it to be the same between BT & USB
-        if(sub_version == 0x2112):
-            return "Broadcom BCM4314A0" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c, technically from bcm_usb_subver_table, but I expect it to be the same between BT & USB
-        if(sub_version == 0x2118):
-            return "Broadcom BCM20702A0" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c, technically from bcm_usb_subver_table, but I expect it to be the same between BT & USB
-        if(sub_version == 0x2126):
-            return "Broadcom BCM4335A0" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c, technically from bcm_usb_subver_table, but I expect it to be the same between BT & USB
-        if(sub_version == 0x6607):
-            return "Broadcom BCM4350C5" # from https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c, technically from bcm_usb_subver_table, but I expect it to be the same between BT & USB
-    elif(device_BT_CID == 93):
-        if(sub_version == 0x8762):
-            return "Realtek RTL8762 (running unpatched)" # from ITW data from one of these https://fccid.io/2AB73-2208A/Internal-Photos/Internal-photos-6664696.pdf
-        if(sub_version == 0xd922):
-            return "Realtek RTL8761B* (running patch version 0xd922)" # from ITW data from one of these https://fccid.io/2BCGWUB500PLUS/Internal-Photos/2405TW0120-UI-Internal-Photograph-7446627.pdf + Realtek RE
-        if(sub_version == 0x8761):
-            return "Realtek RTL8761B* (running unpatched)" # from ITW data from one of these https://fccid.io/2BCGWUB500PLUS/Internal-Photos/2405TW0120-UI-Internal-Photograph-7446627.pdf + Realtek RE
+    """Compatibility wrapper backed by the machine-readable JSON metadata."""
+    chip_text, _match_quality = chipprint_by_sub_version(
+        sub_version, device_BT_CID
+    )
+    return chip_text
 
-    # If we get here, return empty string denoting nothing found
-    return ""
+
+def chipprint_by_sub_version(sub_version, device_BT_CID):
+    """Return ChipPrint text and quality for a company/sub-version pair."""
+    for metadata in (
+        TME.TME_glob.ll_version_ind_metadata,
+        TME.TME_glob.lmp_version_metadata,
+    ):
+        match = lookup_company_subversion_metadata(
+            metadata, device_BT_CID, sub_version
+        )
+        if match is not None:
+            chips = match.get('chips', [])
+            if match.get('cross_chip_collision') and chips:
+                return (
+                    f"Possible chip(s): {', '.join(chips)}",
+                    match.get('match_quality', ''),
+                )
+            return metadata_chip_display_name(match), ''
+    return '', ''
+
+
+def chipprint_by_LL_VERSION(ll_version, sub_version, device_BT_CID):
+    """Return ChipPrint text and evidence quality for a complete LL tuple."""
+    match = lookup_LL_VERSION_IND_metadata(
+        ll_version, device_BT_CID, sub_version
+    )
+    if match is None:
+        return '', ''
+
+    # Preserve the established Broadcom/Realtek ChipPrint wording.
+    if match.get('display_name'):
+        return metadata_chip_display_name(match), ''
+
+    chips = match.get('chips', [])
+    if not chips:
+        return '', ''
+    return (
+        f"Possible chip(s): {', '.join(chips)}",
+        match.get('match_quality', ''),
+    )
+
+
+def chipprint_by_LMP_VERSION(lmp_version, sub_version, device_BT_CID):
+    """Return ChipPrint text and evidence quality for a complete LMP tuple."""
+    match = lookup_LMP_VERSION_metadata(
+        lmp_version, device_BT_CID, sub_version
+    )
+    if match is None:
+        return '', ''
+    if match.get('display_name'):
+        return metadata_chip_display_name(match), ''
+    chips = match.get('chips', [])
+    if not chips:
+        return '', ''
+    return (
+        f"Possible chip(s): {', '.join(chips)}",
+        match.get('match_quality', ''),
+    )
 
 # This function consults with the various sources of information which we might have that suggest a possible Chip, and prints them all
 # If there are conflicting Chip possibilities, it's up to the person to look at the results and determine which source(s) of data they find the most credible
@@ -733,25 +693,28 @@ def print_ChipPrint(bdaddr, bdaddr_random):
     # LL_VERSION_IND data #
     #=====================#
 
-    # We currently have limited visibility into where sub-versions correlate to specific chip IDs. So this is just a PoC for now.
-
     if(bdaddr_random is not None):
         values = (bdaddr_random, bdaddr)
-        version_query = "SELECT ll_sub_version, device_BT_CID FROM LL_VERSION_IND WHERE bdaddr_random = %s AND bdaddr = %s"
+        version_query = "SELECT ll_version, ll_sub_version, device_BT_CID FROM LL_VERSION_IND WHERE bdaddr_random = %s AND bdaddr = %s"
     else:
         values = (bdaddr,)
-        version_query = "SELECT ll_sub_version, device_BT_CID FROM LL_VERSION_IND WHERE bdaddr = %s"
+        version_query = "SELECT ll_version, ll_sub_version, device_BT_CID FROM LL_VERSION_IND WHERE bdaddr = %s"
     version_result = execute_query(version_query, values)
 
     if(len(version_result) != 0):
         no_results_found = False
         # The only time there should be multiple results is if we got some corrupt data, which resulted in inserting N distinct entries into the db
         # Print out all possible entries, just so that if there are other hints from other datatypes, the erroneous ones can be ignored
-        for (ll_sub_version,device_BT_CID) in version_result:
-            chip_name = chip_by_sub_version(ll_sub_version, device_BT_CID)
+        for (ll_version, ll_sub_version, device_BT_CID) in version_result:
+            chip_name, match_quality = chipprint_by_LL_VERSION(
+                ll_version, ll_sub_version, device_BT_CID
+            )
             if(chip_name != ""):
                 print_ChipPrint_header_if_needed()
-                qprint(f"{i2}{string_yellow_bright(chip_name)} -> From LL_VERSION_IND info{" (DB:LL_VERSION_IND)" if TME.TME_glob.verbose_print else ""}")
+                evidence = "LL_VERSION_IND info"
+                if match_quality:
+                    evidence += f" ({match_quality})"
+                qprint(f"{i2}{string_yellow_bright(chip_name)} -> From {evidence}{" (DB:LL_VERSION_IND)" if TME.TME_glob.verbose_print else ""}")
 
     #==========================#
     # LMP_VERSION_REQ/RES data #
@@ -760,18 +723,23 @@ def print_ChipPrint(bdaddr, bdaddr_random):
     # So far experiments have indicated that LMP_VERSION_REQ/RES company ID is the Chip Maker.
 
     values = (bdaddr,)
-    version_query = "SELECT lmp_sub_version, device_BT_CID FROM LMP_VERSION_RES WHERE bdaddr = %s"
+    version_query = "SELECT lmp_version, lmp_sub_version, device_BT_CID FROM LMP_VERSION_RES WHERE bdaddr = %s"
     version_result = execute_query(version_query, values)
 
     if(len(version_result) != 0):
         no_results_found = False
         # The only time there should be multiple results is if we got some corrupt data, which resulted in inserting N distinct entries into the db
         # Print out all possible entries, just so that if there are other hints from other datatypes, the erroneous ones can be ignored
-        for (lmp_sub_version, device_BT_CID) in version_result:
-            chip_name = chip_by_sub_version(lmp_sub_version, device_BT_CID)
+        for (lmp_version, lmp_sub_version, device_BT_CID) in version_result:
+            chip_name, match_quality = chipprint_by_LMP_VERSION(
+                lmp_version, lmp_sub_version, device_BT_CID
+            )
             if(chip_name != ""):
                 print_ChipPrint_header_if_needed()
-                qprint(f"{i2}{string_yellow_bright(chip_name)} -> From LMP_VERSION_REQ/RES info{" (DB:LMP_VERSION_RES)" if TME.TME_glob.verbose_print else ""}")
+                evidence = "LMP_VERSION_REQ/RES info"
+                if match_quality:
+                    evidence += f" ({match_quality})"
+                qprint(f"{i2}{string_yellow_bright(chip_name)} -> From {evidence}{" (DB:LMP_VERSION_RES)" if TME.TME_glob.verbose_print else ""}")
 
     #================#
     # NamePrint data #

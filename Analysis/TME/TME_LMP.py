@@ -7,6 +7,8 @@ from TME.TME_helpers import *
 from TME.TME_BTIDES_LMP import *
 from TME.TME_BTIDES_HCI import *
 from TME.TME_glob import i1, i2, i3, i4, i5 # Required for terser usage within print statements
+from copy import deepcopy
+from TME.TME_version_metadata import lookup_company_subversion_metadata
 
 #####################################################################################
 # Globals to temporarily hold db lookup info (to avoid unnecessary duplicate queries)
@@ -33,6 +35,56 @@ g_tmp_lmp_power_res_result = []
 ########################################
 # LMP Info
 ########################################
+
+def lookup_LMP_VERSION_metadata(lmp_version, company_id, subversion):
+    """Return a chip fingerprint for an LMP version tuple, when known.
+
+    Prefer a verified full tuple, then fall back to company/sub-version
+    evidence that does not constrain LMP VersNr.
+    """
+    metadata = TME.TME_glob.lmp_version_metadata
+    if not metadata:
+        return None
+
+    tuple_key = f"{lmp_version:02X}:{company_id:04X}:{subversion:04X}"
+    exact = metadata.get('exact_matches', {}).get(tuple_key)
+    if exact is not None:
+        result = deepcopy(exact)
+        broad = lookup_company_subversion_metadata(
+            metadata, company_id, subversion
+        )
+        if broad and broad.get('linux_firmware_history'):
+            result['linux_firmware_history'] = broad['linux_firmware_history']
+        result.setdefault('match_quality', 'exact LMP version tuple metadata match')
+        return result
+
+    result = lookup_company_subversion_metadata(
+        metadata, company_id, subversion
+    )
+    if result is not None:
+        result.setdefault('match_quality', (
+            'company/sub-version chip match; VersNr not constrained'
+        ))
+    return result
+
+
+def print_LMP_VERSION_metadata(lmp_version, company_id, subversion):
+    identification = lookup_LMP_VERSION_metadata(
+        lmp_version, company_id, subversion
+    )
+    if identification is None:
+        return
+
+    qprint(f"{i3}Controller identification ({identification['match_quality']}):")
+    if identification.get('chips'):
+        qprint(f"{i4}Possible chip(s): {', '.join(identification['chips'])}")
+    if identification.get('firmware_state'):
+        firmware_state = identification['firmware_state']
+        if identification.get('patch_version'):
+            firmware_state += f" (patch version {identification['patch_version']})"
+        qprint(f"{i4}Controller firmware state: {firmware_state}")
+    for note in identification.get('notes', []):
+        qprint(f"{i4}Note: {note}")
 
 def decode_BTC_features(page, features, indent):
     if(page == 0):
@@ -129,6 +181,7 @@ def print_LMP_VERSION_REQ_RES_info(bdaddr):
         qprint(f"{i3}Version ({lmp_version}): {get_bt_spec_version_numbers_to_names(lmp_version)}")
         qprint(f"{i3}Sub-version: 0x{lmp_sub_version:04x}")
         qprint(f"{i3}Company ID: {device_BT_CID} ({BT_CID_to_company_name(device_BT_CID)})")
+        print_LMP_VERSION_metadata(lmp_version, device_BT_CID, lmp_sub_version)
         BTIDES_export_LMP_VERSION_RES(bdaddr, lmp_version, device_BT_CID, lmp_sub_version)
 
     for lmp_version, lmp_sub_version, device_BT_CID in g_tmp_version_req_result:
@@ -136,6 +189,7 @@ def print_LMP_VERSION_REQ_RES_info(bdaddr):
         qprint(f"{i3}Version ({lmp_version}): {get_bt_spec_version_numbers_to_names(lmp_version)}")
         qprint(f"{i3}Sub-version: 0x{lmp_sub_version:04x}")
         qprint(f"{i3}Company ID: {device_BT_CID} ({BT_CID_to_company_name(device_BT_CID)})")
+        print_LMP_VERSION_metadata(lmp_version, device_BT_CID, lmp_sub_version)
         BTIDES_export_LMP_VERSION_REQ(bdaddr, lmp_version, device_BT_CID, lmp_sub_version)
     g_tmp_version_res_result = []
     g_tmp_version_req_result = []

@@ -1,0 +1,602 @@
+{
+  "schema_version": 1,
+  "description": "Controller firmware and chip-family fingerprints derived from LL_VERSION_IND (VersNr, CompId, SubVersNr) tuples.",
+  "tuple_key_format": "VV:CCCC:SSSS, uppercase hexadecimal without 0x",
+  "caveat": "These values identify reported controller firmware, not authenticated hardware. Custom firmware can report arbitrary values.",
+  "company_subversion_key_format": "CCCC:SSSS, uppercase hexadecimal without 0x; used when the evidence does not constrain VersNr",
+  "realtek_linux_firmware_history_file": "Realtek_linux_firmware_history.json",
+  "company_subversion_matches": {
+    "000F:6308": {"vendor": "Broadcom", "chips": ["Broadcom BCM4387C2"], "display_name": "Broadcom BCM4387C2", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x6308.py"]},
+    "000F:6206": {"vendor": "Broadcom", "chips": ["Broadcom BCM4345C1"], "display_name": "Broadcom BCM4345C1", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x6206.py"]},
+    "000F:617E": {"vendor": "Broadcom", "chips": ["Broadcom BCM4345B0"], "display_name": "Broadcom BCM4345B0", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x617e.py"]},
+    "000F:6119": {"vendor": "Broadcom", "chips": ["Broadcom BCM4345C0"], "display_name": "Broadcom BCM4345C0", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x6119.py"]},
+    "000F:6109": {"vendor": "Broadcom", "chips": ["Broadcom BCM4335C0"], "display_name": "Broadcom BCM4335C0", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x6109.py"]},
+    "000F:6103": {"vendor": "Broadcom", "chips": ["Broadcom BCM4355C0"], "display_name": "Broadcom BCM4355C0", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x6103.py"]},
+    "000F:422A": {"vendor": "Broadcom", "chips": ["Broadcom BCM2070B0"], "display_name": "Broadcom BCM2070B0", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x422a.py"]},
+    "000F:4228": {"vendor": "Broadcom", "chips": ["Broadcom BCM4378B1"], "display_name": "Broadcom BCM4378B1", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x4228.py"]},
+    "000F:420E": {"vendor": "Broadcom/Cypress", "chips": ["Broadcom BCM4347B1", "Cypress CYW20739B1", "Broadcom BCM4349B1"], "display_name": "Broadcom BCM4347B1 or Cypress CYW20739B1 or Broadcom BCM4349B1", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x420e.py", "https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x420e_iphone.py", "https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:4208": {"vendor": "Cypress (reported under Broadcom company ID)", "chips": ["Cypress CYW20735B1"], "display_name": "Cypress CYW20735B1", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x4208.py"]},
+    "000F:4196": {"vendor": "Broadcom", "chips": ["Broadcom BCM20702A2"], "display_name": "Broadcom BCM20702A2", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x4196.py"]},
+    "000F:411A": {"vendor": "Broadcom", "chips": ["Broadcom BCM4347B0"], "display_name": "Broadcom BCM4347B0", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x411a.py"]},
+    "000F:4109": {"vendor": "Broadcom", "chips": ["Broadcom BCM4345B0"], "display_name": "Broadcom BCM4345B0", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x4109.py"]},
+    "000F:3040": {"vendor": "Broadcom", "chips": ["Broadcom BCM4364B3"], "display_name": "Broadcom BCM4364B3", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x3040.py"]},
+    "000F:3032": {"vendor": "Broadcom", "chips": ["Broadcom BCM4364B3"], "display_name": "Broadcom BCM4364B3", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x3032.py"]},
+    "000F:240F": {"vendor": "Broadcom", "chips": ["Broadcom BCM4358A3"], "display_name": "Broadcom BCM4358A3", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x240f.py"]},
+    "000F:2230": {"vendor": "Broadcom", "chips": ["Broadcom BCM20703A2"], "display_name": "Broadcom BCM20703A2", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x2230.py"]},
+    "000F:220E": {"vendor": "Broadcom", "chips": ["Broadcom BCM20702A1"], "display_name": "Broadcom BCM20702A1", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x220e.py"]},
+    "000F:220C": {"vendor": "Cypress (reported under Broadcom company ID)", "chips": ["Cypress CYW20819A1"], "display_name": "Cypress CYW20819A1", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x220c.py"]},
+    "000F:220B": {"vendor": "Cypress (reported under Broadcom company ID)", "chips": ["Cypress CYW20706"], "display_name": "Cypress CYW20706", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x220b.py"]},
+    "000F:2209": {"vendor": "Broadcom", "chips": ["Broadcom BCM43430A1"], "display_name": "Broadcom BCM43430A1", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x2209.py"]},
+    "000F:21D0": {"vendor": "Broadcom", "chips": ["Broadcom BCM2046"], "display_name": "Broadcom BCM2046", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x21d0.py"]},
+    "000F:21A9": {"vendor": "Broadcom", "chips": ["Broadcom BCM20703A1"], "display_name": "Broadcom BCM20703A1", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x21a9.py"]},
+    "000F:2056": {"vendor": "Broadcom", "chips": ["Broadcom BCM4364B0"], "display_name": "Broadcom BCM4364B0", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x2056.py"]},
+    "000F:203A": {"vendor": "Broadcom", "chips": ["Broadcom BCM4377B3"], "display_name": "Broadcom BCM4377B3", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x203a.py"]},
+    "000F:2033": {"vendor": "Broadcom", "chips": ["Broadcom BCM4377B3"], "display_name": "Broadcom BCM4377B3", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x2033.py"]},
+    "000F:1111": {"vendor": "Broadcom", "chips": ["Broadcom BCM4375B1"], "display_name": "Broadcom BCM4375B1", "sources": ["https://github.com/seemoo-lab/internalblue/blob/master/internalblue/fw/fw_0x1111.py"]},
+    "000F:4103": {"vendor": "Broadcom", "chips": ["Broadcom BCM4330B1"], "display_name": "Broadcom BCM4330B1", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:410D": {"vendor": "Broadcom", "chips": ["Broadcom BCM4334B0"], "display_name": "Broadcom BCM4334B0", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:410E": {"vendor": "Broadcom", "chips": ["Broadcom BCM43341B0"], "display_name": "Broadcom BCM43341B0", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:4204": {"vendor": "Broadcom", "chips": ["Broadcom BCM2076B1"], "display_name": "Broadcom BCM2076B1", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:4406": {"vendor": "Broadcom", "chips": ["Broadcom BCM4324B3"], "display_name": "Broadcom BCM4324B3", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:4606": {"vendor": "Broadcom", "chips": ["Broadcom BCM4324B5"], "display_name": "Broadcom BCM4324B5", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:610C": {"vendor": "Broadcom", "chips": ["Broadcom BCM4354"], "display_name": "Broadcom BCM4354", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:2122": {"vendor": "Broadcom", "chips": ["Broadcom BCM4343A0"], "display_name": "Broadcom BCM4343A0", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:6606": {"vendor": "Broadcom", "chips": ["Broadcom BCM4345C0"], "display_name": "Broadcom BCM4345C0", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:230F": {"vendor": "Broadcom", "chips": ["Broadcom BCM4356A2"], "display_name": "Broadcom BCM4356A2", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:420D": {"vendor": "Broadcom", "chips": ["Broadcom BCM4349B1"], "display_name": "Broadcom BCM4349B1", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:4217": {"vendor": "Broadcom", "chips": ["Broadcom BCM4329B1"], "display_name": "Broadcom BCM4329B1", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:6106": {"vendor": "Broadcom", "chips": ["Broadcom BCM4359C0"], "display_name": "Broadcom BCM4359C0", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:4106": {"vendor": "Broadcom", "chips": ["Broadcom BCM4335A0"], "display_name": "Broadcom BCM4335A0", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:410C": {"vendor": "Broadcom", "chips": ["Broadcom BCM43430B0"], "display_name": "Broadcom BCM43430B0", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:2119": {"vendor": "Broadcom", "chips": ["Broadcom BCM4373A0"], "display_name": "Broadcom BCM4373A0", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"]},
+    "000F:2105": {"vendor": "Broadcom", "chips": ["Broadcom BCM20703A1"], "display_name": "Broadcom BCM20703A1", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"], "notes": ["Inferred from Linux's bcm_usb_subver_table; the same BT/USB mapping was observed for sub-version 0x220E."]},
+    "000F:210B": {"vendor": "Broadcom", "chips": ["Broadcom BCM43142A0"], "display_name": "Broadcom BCM43142A0", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"], "notes": ["Inferred from Linux's bcm_usb_subver_table; not independently confirmed for LL_VERSION_IND or LMP_VERSION."]},
+    "000F:2112": {"vendor": "Broadcom", "chips": ["Broadcom BCM4314A0"], "display_name": "Broadcom BCM4314A0", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"], "notes": ["Inferred from Linux's bcm_usb_subver_table; not independently confirmed for LL_VERSION_IND or LMP_VERSION."]},
+    "000F:2118": {"vendor": "Broadcom", "chips": ["Broadcom BCM20702A0"], "display_name": "Broadcom BCM20702A0", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"], "notes": ["Inferred from Linux's bcm_usb_subver_table; not independently confirmed for LL_VERSION_IND or LMP_VERSION."]},
+    "000F:2126": {"vendor": "Broadcom", "chips": ["Broadcom BCM4335A0"], "display_name": "Broadcom BCM4335A0", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"], "notes": ["Inferred from Linux's bcm_usb_subver_table; not independently confirmed for LL_VERSION_IND or LMP_VERSION."]},
+    "000F:6607": {"vendor": "Broadcom", "chips": ["Broadcom BCM4350C5"], "display_name": "Broadcom BCM4350C5", "sources": ["https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"], "notes": ["Inferred from Linux's bcm_usb_subver_table; not independently confirmed for LL_VERSION_IND or LMP_VERSION."]},
+    "005D:8762": {"vendor": "Realtek", "chips": ["Realtek RTL8762"], "display_name": "Realtek RTL8762 (running unpatched)", "firmware_state": "unpatched", "sources": ["https://fccid.io/2AB73-2208A/Internal-Photos/Internal-photos-6664696.pdf"]},
+    "005D:D922": {"vendor": "Realtek", "chips": ["Realtek RTL8761B*"], "display_name": "Realtek RTL8761B* (running patch version 0xd922)", "firmware_state": "patched", "patch_version": "0xD922", "sources": ["https://fccid.io/2BCGWUB500PLUS/Internal-Photos/2405TW0120-UI-Internal-Photograph-7446627.pdf"], "notes": ["Identification also incorporates prior Realtek reverse-engineering results."]},
+    "005D:8761": {"vendor": "Realtek", "chips": ["Realtek RTL8761B*"], "display_name": "Realtek RTL8761B* (running unpatched)", "firmware_state": "unpatched", "sources": ["https://fccid.io/2BCGWUB500PLUS/Internal-Photos/2405TW0120-UI-Internal-Photograph-7446627.pdf"], "notes": ["Identification also incorporates prior Realtek reverse-engineering results."]}
+  },
+  "exact_matches": {
+    "0A:02FF:0001": {
+      "vendor": "Silicon Labs",
+      "chips": ["Silicon Labs EFR32xG21 family"],
+      "notes": ["Confirmed in EFR32BG21 and EFR32xG21 transmitters; this tuple does not identify a unique Gecko SDK release."],
+      "sources": ["EFR32BG21_gpt6.0_sol_renames_2026-10-14", "EFR32xG21_gpt6.0_sol_renames_2026-10-14"]
+    },
+    "0E:0A24:0302": {
+      "vendor": "Atmosic",
+      "chips": ["Atmosic ATM33xx-5 family"],
+      "notes": ["Direct LL_VERSION_IND transmit constants in the inspected BLELLPD50 image; not a unique silicon revision identifier."],
+      "sources": ["ATM33xx_gpt6.0_sol_renames_2026-10-15"]
+    },
+    "08:0060:030E": {
+      "vendor": "Espressif",
+      "chips": ["Espressif ESP32 rev300"],
+      "notes": ["Image-default value: company ID comes from the initialized .data_btdm overlay, assuming it is loaded at the controller runtime address; runtime changes and other ESP32 revisions are not constrained."],
+      "sources": ["esp32_rev300_rom_all_names_removed_p_phase_done"]
+    },
+    "09:005A:1200": {
+      "vendor": "EM Microelectronic",
+      "chips": ["EM Microelectronic EM9304"],
+      "notes": ["Image-default value; the LL company ID getter accepts a nonzero runtime override."],
+      "sources": ["user_EM9304_SuperGPT5.6_sol_ultra_renames_2026-07-11"]
+    },
+    "0A:0917:0008": {
+      "vendor": "ASR Microelectronics",
+      "chips": ["ASR Microelectronics ASR582x family"],
+      "notes": ["Direct LL_VERSION_IND transmit constants in the inspected ASR582x image."],
+      "sources": ["ASR582x_gpt6.0_sol_renames_2026-10-09"]
+    },
+    "0A:06AC:0101": {
+      "vendor": "INGChips",
+      "chips": ["INGChips ING9188xx family"],
+      "notes": ["The inspected image initializes its version-selection configuration to 0x7F, selecting VersNr 0x0A; the code can select 0x08 with another runtime configuration."],
+      "sources": ["ING9188xx_gpt6.0_sol_renames_2026-10-15"]
+    },
+    "0D:07D7:A213": {
+      "vendor": "WCH",
+      "chips": ["WCH CH58x family"],
+      "notes": ["LL_Init values flow into the LL_VERSION_IND transmitter in the inspected CH58x image."],
+      "sources": ["CH58x_gpt6_sol_renames_2026-10-16"]
+    },
+    "0A:001D:02BE": {
+      "vendor": "Qualcomm",
+      "chips": ["Qualcomm WCN3990"],
+      "notes": ["Inspected Moto G Play 2024 post-patch image; the LL builder reads configuration and a version record, so the tuple is image-scoped."],
+      "sources": ["WCN3990_gpt6.0_sol_renames_2026-10-19"]
+    },
+    "0B:00D2:001B": {
+      "vendor": "Renesas",
+      "chips": ["Renesas DA1469x family"],
+      "notes": ["Direct LL_VERSION_IND transmit constants; image identity matches a DA1469x clean project."],
+      "sources": ["Renesas_GPT5.6_renames_2026-07-26"]
+    },
+    "0A:005D:D922": {
+      "vendor": "Realtek",
+      "chips": ["Realtek RTL8761B*"],
+      "display_name": "Realtek RTL8761B* (running patch version 0xd922)",
+      "firmware_state": "patched",
+      "patch_version": "0xD922",
+      "notes": ["Direct LL_VERSION_IND transmitter in the inspected RTL8761BU image; other RTL8761B* variants remain possible."],
+      "sources": ["user_rtl8761bu_opus4.7_rename_2026-04-30"]
+    },
+    "08:005D:8821": {
+      "vendor": "Realtek",
+      "chips": ["Realtek RTL8821CE"],
+      "notes": ["Direct LL_VERSION_IND transmitter in the inspected RTL8821CE memory-map image; this identifies a possible chip, not a unique hardware proof."],
+      "sources": ["RTL8821CE_GPT5.6_renames_2026-07-26"]
+    },
+    "07:000F:2209": {
+      "vendor": "Broadcom",
+      "chips": ["Broadcom BCM43430A1"],
+      "display_name": "Broadcom BCM43430A1",
+      "notes": ["The inspected Raspberry Pi Zero W image sends LL VersNr 0x07; its LMP response uses VersNr 0x06 with the same company and subversion."],
+      "sources": ["Broadcom_GPT5.6_renames_2026-07-26"]
+    },
+    "06:0059:002C": {
+      "software": ["S110 5.0.0"],
+      "chips": ["nRF51822", "nRF51422"],
+      "sdk_versions": ["Older nRF51 SDK generation; SoftDevice distributed separately"],
+      "notes": ["FWID is listed in Nordic's SDK compatibility documentation; the binary was not embedded in the inspected main SDK archive."]
+    },
+    "06:0059:0043": {
+      "software": ["S110 5.2.1"],
+      "chips": ["nRF51822", "nRF51422"],
+      "sdk_versions": ["Older nRF51 SDK generation; SoftDevice distributed separately"],
+      "notes": ["FWID is listed in Nordic's SDK compatibility documentation; the binary was not embedded in the inspected main SDK archive."]
+    },
+    "07:0059:004F": {
+      "software": ["S110 7.0.0"],
+      "chips": ["nRF51822", "nRF51422"],
+      "sdk_versions": ["Older nRF51 SDK generation; SoftDevice distributed separately"]
+    },
+    "07:0059:005A": {
+      "software": ["S110 7.1.0"],
+      "chips": ["nRF51822", "nRF51422"],
+      "sdk_versions": ["Older nRF51 SDK generation; SoftDevice distributed separately"]
+    },
+    "07:0059:005D": {
+      "software": ["S310 2.0.0"],
+      "chips": ["nRF51422"],
+      "sdk_versions": ["Older nRF51 SDK generation; SoftDevice distributed separately"]
+    },
+    "07:0059:0064": {
+      "software": ["S110 8.0.0"],
+      "chips": ["nRF51822", "nRF51422"],
+      "sdk_versions": ["nRF51 SDK 8.0.0", "nRF51 SDK 8.1.0", "nRF51 SDK 9.0.0", "nRF51 SDK 10.0.0"]
+    },
+    "07:0059:0060": {
+      "software": ["S120 2.0.0"],
+      "chips": ["nRF51822", "nRF51422"],
+      "sdk_versions": ["nRF51 SDK 8.0.0", "nRF51 SDK 8.1.0"]
+    },
+    "07:0059:006B": {
+      "software": ["S120 2.1.0"],
+      "chips": ["nRF51822", "nRF51422"],
+      "sdk_versions": ["nRF51 SDK 9.0.0", "nRF51 SDK 10.0.0"]
+    },
+    "07:0059:0065": {
+      "software": ["S310 3.0.0"],
+      "chips": ["nRF51422"],
+      "sdk_versions": ["nRF51 SDK 9.0.0", "nRF51 SDK 10.0.0"]
+    },
+    "08:0059:005E": {
+      "software": ["S130 0.9.0-1.alpha"],
+      "chips": ["nRF51822", "nRF51422"],
+      "sdk_versions": ["nRF51 SDK 8.0.0"]
+    },
+    "08:0059:0067": {
+      "software": ["S130 1.0.0"],
+      "chips": ["nRF51822", "nRF51422"],
+      "sdk_versions": ["nRF51 SDK 8.1.0", "nRF51 SDK 9.0.0", "nRF51 SDK 10.0.0"]
+    },
+    "08:0059:0080": {
+      "software": ["S130 2.0.0"],
+      "chips": ["nRF51822", "nRF51422", "compatible nRF51802 variants"],
+      "sdk_versions": ["nRF5 SDK 11.0.0"]
+    },
+    "08:0059:0087": {
+      "software": ["S130 2.0.1"],
+      "chips": ["nRF51822", "nRF51422", "compatible nRF51802 variants"],
+      "sdk_versions": ["nRF5 SDK 12.0.0", "nRF5 SDK 12.1.0", "nRF5 SDK 12.2.0", "nRF5 SDK 12.3.0", "nRF5 SDK 13.0.0-1.alpha"]
+    },
+    "08:0059:0081": {
+      "software": ["S132 2.0.0"],
+      "chips": ["nRF52832"],
+      "sdk_versions": ["nRF5 SDK 11.0.0"]
+    },
+    "08:0059:008C": {
+      "software": ["S132 3.0.0"],
+      "chips": ["nRF52832"],
+      "sdk_versions": ["nRF5 SDK 12.0.0", "nRF5 SDK 12.1.0", "nRF5 SDK 12.2.0", "nRF5 SDK 12.3.0"]
+    },
+    "08:0059:0098": {
+      "software": ["S132 4.0.2"],
+      "chips": ["nRF52832"],
+      "sdk_versions": ["nRF5 SDK 13.0.0", "nRF5 SDK 13.1.0"]
+    },
+    "08:0059:007E": {
+      "software": ["ANT S332 0.6.0.alpha"],
+      "chips": ["nRF52832 early/engineering silicon"],
+      "match_quality": "FWID-derived Nordic ANT+BLE candidate; not field-observed",
+      "on_air_verified": false,
+      "notes": ["Garmin previous-items archive contains S332 0.6.0.alpha with image FWID 0x007E; its release notes say it combines S132 2.0.0-7.alpha with ANT S212.", "VersNr 0x08 follows the Bluetooth 4.2 BLE base; CompId 0x0059 and SubVersNr equal to FWID are inferred Nordic conventions, not verified from this image on air."],
+      "sources": ["https://developer.garmin.com/downloads/ant/SoftDevices_Previous_Items.zip"]
+    },
+    "08:0059:0082": {
+      "software": ["ANT S332 0.9.1.alpha"],
+      "chips": ["nRF52832 early/engineering silicon"],
+      "match_quality": "FWID-derived Nordic ANT+BLE candidate; not field-observed",
+      "on_air_verified": false,
+      "notes": ["Garmin previous-items archive contains S332 0.9.1.alpha with image FWID 0x0082; its release notes say it combines S132 2.0.0 with ANT S212.", "VersNr 0x08 follows the Bluetooth 4.2 BLE base; CompId 0x0059 and SubVersNr equal to FWID are inferred Nordic conventions, not verified from this image on air."],
+      "sources": ["https://developer.garmin.com/downloads/ant/SoftDevices_Previous_Items.zip"]
+    },
+    "08:0059:0085": {
+      "software": ["ANT S332 1.0.2"],
+      "chips": ["nRF52832"],
+      "match_quality": "FWID-derived Nordic ANT+BLE candidate; not field-observed",
+      "on_air_verified": false,
+      "notes": ["Garmin previous-items archive contains S332 1.0.2 with image FWID 0x0085; its release notes say it combines S132 2.0.1 with ANT S212.", "VersNr 0x08 follows the Bluetooth 4.2 BLE base; CompId 0x0059 and SubVersNr equal to FWID are inferred Nordic conventions, not verified from this image on air."],
+      "sources": ["https://developer.garmin.com/downloads/ant/SoftDevices_Previous_Items.zip"]
+    },
+    "08:0059:008E": {
+      "software": ["ANT S332 2.0.0", "ANT S332 2.0.1"],
+      "chips": ["nRF52832"],
+      "match_quality": "FWID-derived Nordic ANT+BLE candidate; not field-observed",
+      "on_air_verified": false,
+      "notes": ["The 2.0.0 and 2.0.1 images in Garmin's previous-items archive share FWID 0x008E despite having different embedded SoftDevice version numbers; FWID therefore cannot distinguish these two releases.", "VersNr 0x08 follows their S132 3.0.0 Bluetooth 4.2 BLE base; CompId 0x0059 and SubVersNr equal to FWID are inferred Nordic conventions, not verified on air."],
+      "sources": ["https://developer.garmin.com/downloads/ant/SoftDevices_Previous_Items.zip"]
+    },
+    "08:0059:0094": {
+      "software": ["ANT S332 4.0.2", "ANT S332 4.0.2-2", "ANT S332 4.0.5"],
+      "chips": ["nRF52832"],
+      "match_quality": "FWID-derived Nordic ANT+BLE candidate; not field-observed",
+      "on_air_verified": false,
+      "notes": ["The 4.0.2, 4.0.2-2, and 4.0.5 images in Garmin's previous-items archive share FWID 0x0094; FWID therefore cannot distinguish these releases.", "VersNr 0x08 follows their S132 4.x Bluetooth 4.2 BLE base; CompId 0x0059 and SubVersNr equal to FWID are inferred Nordic conventions, not verified on air."],
+      "sources": ["https://developer.garmin.com/downloads/ant/SoftDevices_Previous_Items.zip"]
+    },
+    "08:0059:009F": {
+      "software": ["S132 4.0.5"],
+      "chips": ["nRF52832"],
+      "match_quality": "FWID-derived Nordic SoftDevice candidate; not field-observed",
+      "on_air_verified": false,
+      "notes": ["Standalone s132_nRF52_405.zip on the EXFAT drive contains image FWID 0x009F and embedded SoftDevice version 4.0.5.", "VersNr 0x08 follows the S132 4.x Bluetooth 4.2 family; CompId 0x0059 and SubVersNr equal to FWID are inferred Nordic conventions, not verified for this image on air."],
+      "sources": ["s132_nRF52_405.zip"]
+    },
+    "09:0059:0090": {
+      "software": ["S132 5.0.0-1.alpha"],
+      "chips": ["nRF52832"],
+      "sdk_versions": ["nRF5 SDK 13.0.0-1.alpha"]
+    },
+    "09:0059:008F": {
+      "software": ["S140 5.0.0-1.alpha"],
+      "chips": ["nRF52840 early/engineering silicon"],
+      "sdk_versions": ["nRF5 SDK 13.0.0-1.alpha"]
+    },
+    "09:0059:0096": {
+      "software": ["S140 5.0.0-2.alpha"],
+      "chips": ["nRF52840 early/engineering silicon"],
+      "sdk_versions": ["nRF5 SDK 13.0.0", "nRF5 SDK 13.1.0", "nRF5 SDK 14.0.0", "nRF5 SDK 14.1.0", "nRF5 SDK 14.2.0"]
+    },
+    "09:0059:009D": {
+      "software": ["S132 5.0.0"],
+      "chips": ["nRF52832"],
+      "sdk_versions": ["nRF5 SDK 14.0.0", "nRF5 SDK 14.1.0", "nRF5 SDK 14.2.0"]
+    },
+    "09:0059:009B": {
+      "software": ["ANT S332 5.0.0"],
+      "chips": ["nRF52832"],
+      "match_quality": "FWID-derived Nordic ANT+BLE candidate; not field-observed",
+      "on_air_verified": false,
+      "notes": ["Garmin previous-items archive contains S332 5.0.0 with image FWID 0x009B; its release notes say it combines S132 5.0.0 with ANT S212.", "VersNr 0x09 follows the Bluetooth 5.0 BLE base; CompId 0x0059 and SubVersNr equal to FWID are inferred Nordic conventions, not verified from this image on air."],
+      "sources": ["https://developer.garmin.com/downloads/ant/SoftDevices_Previous_Items.zip"]
+    },
+    "09:0059:FFFE": {
+      "software": ["S112 5.1.0-2.alpha"],
+      "chips": ["nRF52810", "nRF52832 for development"],
+      "sdk_versions": ["nRF5 SDK 14.1.0"],
+      "notes": ["Development/alpha identifier; treat as a weaker fingerprint than a production FWID."]
+    },
+    "09:0059:00A6": {
+      "software": ["S112 5.1.0"],
+      "chips": ["nRF52810", "nRF52832 for development"],
+      "sdk_versions": ["nRF5 SDK 14.2.0"]
+    },
+    "09:0059:00A7": {
+      "software": ["S112 6.0.0"],
+      "chips": ["nRF52810", "nRF52832 for development"],
+      "sdk_versions": ["nRF5 SDK 15.0.0"]
+    },
+    "09:0059:00A8": {
+      "software": ["S132 6.0.0"],
+      "chips": ["nRF52832"],
+      "sdk_versions": ["nRF5 SDK 15.0.0"]
+    },
+    "09:0059:00A9": {
+      "software": ["S140 6.0.0"],
+      "chips": ["nRF52840"],
+      "sdk_versions": ["nRF5 SDK 15.0.0"]
+    },
+    "09:0059:00B0": {
+      "software": ["S112 6.1.0"],
+      "chips": ["nRF52810", "nRF52832"],
+      "sdk_versions": ["nRF5 SDK 15.1.0", "nRF5 SDK 15.2.0"]
+    },
+    "09:0059:00AF": {
+      "software": ["S132 6.1.0"],
+      "chips": ["nRF52832"],
+      "sdk_versions": ["nRF5 SDK 15.1.0", "nRF5 SDK 15.2.0"]
+    },
+    "09:0059:00AE": {
+      "software": ["S140 6.1.0"],
+      "chips": ["nRF52840"],
+      "sdk_versions": ["nRF5 SDK 15.1.0", "nRF5 SDK 15.2.0"]
+    },
+    "09:0059:00B8": {
+      "software": ["S112 6.1.1"],
+      "chips": ["nRF52810", "nRF52832"],
+      "sdk_versions": ["nRF5 SDK 15.3.0"]
+    },
+    "09:0059:00B7": {
+      "software": ["S132 6.1.1"],
+      "chips": ["nRF52832"],
+      "sdk_versions": ["nRF5 SDK 15.3.0"]
+    },
+    "09:0059:00B6": {
+      "software": ["S140 6.1.1"],
+      "chips": ["nRF52840"],
+      "sdk_versions": ["nRF5 SDK 15.3.0"]
+    },
+    "09:0059:00B9": {
+      "software": ["ANT S340 6.1.1"],
+      "chips": ["nRF52840"],
+      "match_quality": "FWID-derived Nordic ANT+BLE candidate; not field-observed",
+      "on_air_verified": false,
+      "notes": ["Garmin current-items archive contains S340 6.1.1 with image and documented FWID 0x00B9; its release notes say it combines S140 6.1.1 with ANT S240.", "VersNr 0x09 follows the Bluetooth 5.0 BLE base; CompId 0x0059 and SubVersNr equal to FWID are inferred Nordic conventions, not verified from this image on air."],
+      "sources": ["https://developer.garmin.com/downloads/ant/SoftDevices_Current_Items.zip"]
+    },
+    "09:0059:00BA": {
+      "software": ["ANT S332 6.1.1"],
+      "chips": ["nRF52832"],
+      "match_quality": "FWID-derived Nordic ANT+BLE candidate; not field-observed",
+      "on_air_verified": false,
+      "notes": ["Garmin current-items archive contains S332 6.1.1 with image and documented FWID 0x00BA; its release notes say it combines S132 6.1.1 with ANT S212.", "VersNr 0x09 follows the Bluetooth 5.0 BLE base; CompId 0x0059 and SubVersNr equal to FWID are inferred Nordic conventions, not verified from this image on air."],
+      "sources": ["https://developer.garmin.com/downloads/ant/SoftDevices_Current_Items.zip"]
+    },
+    "09:0059:00BB": {
+      "software": ["ANT S312 6.1.1"],
+      "chips": ["nRF52810"],
+      "match_quality": "FWID-derived Nordic ANT+BLE candidate; not field-observed",
+      "on_air_verified": false,
+      "notes": ["Garmin current-items archive contains S312 6.1.1 with image and documented FWID 0x00BB; its release notes say it combines S112 6.1.1 with ANT S212.", "VersNr 0x09 follows the Bluetooth 5.0 BLE base; CompId 0x0059 and SubVersNr equal to FWID are inferred Nordic conventions, not verified from this image on air."],
+      "sources": ["https://developer.garmin.com/downloads/ant/SoftDevices_Current_Items.zip"]
+    },
+    "0A:0059:00CD": {
+      "software": ["S112 7.0.1"],
+      "chips": ["nRF52805", "nRF52810", "nRF52811", "nRF52832"],
+      "sdk_versions": ["nRF5 SDK 16.0.0"]
+    },
+    "0A:0059:00CC": {
+      "software": ["S113 7.0.1"],
+      "chips": ["nRF52810", "nRF52811", "nRF52832", "nRF52840"],
+      "sdk_versions": ["nRF5 SDK 16.0.0"]
+    },
+    "0A:0059:00CB": {
+      "software": ["S132 7.0.1"],
+      "chips": ["nRF52832"],
+      "sdk_versions": ["nRF5 SDK 16.0.0"]
+    },
+    "0A:0059:00CA": {
+      "software": ["S140 7.0.1"],
+      "chips": ["nRF52811", "nRF52840"],
+      "sdk_versions": ["nRF5 SDK 16.0.0"]
+    },
+    "0A:0059:00CE": {
+      "software": ["ANT S340 7.0.1"],
+      "chips": ["nRF52820", "nRF52833", "nRF52840"],
+      "match_quality": "FWID-derived Nordic ANT+BLE candidate; VersNr documented; not field-observed",
+      "on_air_verified": false,
+      "notes": ["Garmin's 7.0.1 release notes explicitly give LL_VERSION_IND VersNr 0x0A and FWID 0x00CE; the image info structure corroborates the FWID.", "CompId 0x0059 and SubVersNr equal to FWID are inferred Nordic conventions, not verified from this image on air."],
+      "sources": ["https://developer.garmin.com/downloads/ant/SoftDevices_Current_Items.zip"]
+    },
+    "0A:0059:00CF": {
+      "software": ["ANT S332 7.0.1"],
+      "chips": ["nRF52832"],
+      "match_quality": "FWID-derived Nordic ANT+BLE candidate; VersNr documented; not field-observed",
+      "on_air_verified": false,
+      "notes": ["Garmin's 7.0.1 release notes explicitly give LL_VERSION_IND VersNr 0x0A and FWID 0x00CF; the image info structure corroborates the FWID.", "CompId 0x0059 and SubVersNr equal to FWID are inferred Nordic conventions, not verified from this image on air."],
+      "sources": ["https://developer.garmin.com/downloads/ant/SoftDevices_Current_Items.zip"]
+    },
+    "0A:0059:00D0": {
+      "software": ["ANT S313 7.0.1"],
+      "chips": ["nRF52810", "nRF52811", "nRF52832", "nRF52833", "nRF52840"],
+      "match_quality": "FWID-derived Nordic ANT+BLE candidate; VersNr documented; not field-observed",
+      "on_air_verified": false,
+      "notes": ["Garmin's 7.0.1 release notes explicitly give LL_VERSION_IND VersNr 0x0A and FWID 0x00D0; the image info structure corroborates the FWID.", "CompId 0x0059 and SubVersNr equal to FWID are inferred Nordic conventions, not verified from this image on air."],
+      "sources": ["https://developer.garmin.com/downloads/ant/SoftDevices_Current_Items.zip"]
+    },
+    "0A:0059:00D1": {
+      "software": ["ANT S312 7.0.1"],
+      "chips": ["nRF52805", "nRF52810", "nRF52811", "nRF52820", "nRF52832"],
+      "match_quality": "FWID-derived Nordic ANT+BLE candidate; VersNr documented; not field-observed",
+      "on_air_verified": false,
+      "notes": ["Garmin's 7.0.1 release notes explicitly give LL_VERSION_IND VersNr 0x0A and FWID 0x00D1; the image info structure corroborates the FWID.", "CompId 0x0059 and SubVersNr equal to FWID are inferred Nordic conventions, not verified from this image on air."],
+      "sources": ["https://developer.garmin.com/downloads/ant/SoftDevices_Current_Items.zip"]
+    },
+    "0A:0059:0103": {
+      "software": ["S112 7.2.0"],
+      "chips": ["nRF52805", "nRF52810", "nRF52811", "nRF52820", "nRF52832"],
+      "sdk_versions": ["nRF5 SDK 17.0.2", "nRF5 SDK 17.1.0", "nRF5 SDK 17.1.1"]
+    },
+    "0A:0059:0102": {
+      "software": ["S113 7.2.0"],
+      "chips": ["nRF52805", "nRF52810", "nRF52811", "nRF52820", "nRF52832", "nRF52833", "nRF52840"],
+      "sdk_versions": ["nRF5 SDK 17.0.2", "nRF5 SDK 17.1.0", "nRF5 SDK 17.1.1"]
+    },
+    "0A:0059:0101": {
+      "software": ["S132 7.2.0"],
+      "chips": ["nRF52832"],
+      "sdk_versions": ["nRF5 SDK 17.0.2", "nRF5 SDK 17.1.0", "nRF5 SDK 17.1.1"],
+      "notes": ["Nordic's corrected release notes specify nRF52832 only; the inspected DFU HEX contains the LL version transmitter and initialized tuple."],
+      "sources": ["user_nrf52832_OTA_DFU_Sample_hex_opus4.7_renames"]
+    },
+    "0A:0059:0100": {
+      "software": ["S140 7.2.0"],
+      "chips": ["nRF52811", "nRF52820", "nRF52833", "nRF52840"],
+      "sdk_versions": ["nRF5 SDK 17.0.2", "nRF5 SDK 17.1.0", "nRF5 SDK 17.1.1"]
+    },
+    "0B:0059:00EA": {
+      "software": ["S122 8.0.0"],
+      "chips": ["nRF52820", "nRF52833"],
+      "sdk_versions": ["nRF5 SDK 17.0.2", "nRF5 SDK 17.1.0", "nRF5 SDK 17.1.1"]
+    },
+    "10:0059:310D": {
+      "software": ["S115 10.0.1", "S145 10.0.1"],
+      "chips": ["nRF54L05", "nRF54L10", "nRF54L15", "nRF54LM20", "nRF54LS05", "nRF54LV10"],
+      "sdk_versions": ["nRF Connect SDK Bare Metal 2.0 development series"],
+      "notes": ["Both SoftDevice variants and all listed chip builds share this tuple.", "Contains SoftDevice Controller and MPSL components from nRF Connect SDK 3.3.0.", "nRF54LS05 and nRF54LV10 support is marked experimental in the 10.0.1 release notes."]
+    },
+    "08:050E:0003": {
+      "software": ["YiChip YC1121 BLE controller microcode (unversioned community mirror)"],
+      "chips": ["YiChip YC1121 family"],
+      "match_quality": "exact tuple from static controller source; not field-observed",
+      "notes": ["Statically encoded, not verified from an on-air capture: the LL_VERSION_IND send path copies mem_version bytes 08 0E 05 03 00; both 16-bit fields are little-endian.", "The source is an unverified community mirror; this tuple does not establish a specific YC1121 revision or SDK release."],
+      "sources": ["https://github.com/WuSJ1001/YC1121_Stack"]
+    },
+    "09:0B65:0000": {
+      "software": ["Apache NimBLE controller default configuration"],
+      "match_quality": "exact tuple from software defaults; not field-observed",
+      "notes": ["Source-derived default, not an observed device: BLE_VERSION defaults to 5.0, BLE_LL_MANUFACTURER_ID to 0x0B65, and BLE_LL_SUB_VERS_NR to 0x0000.", "NimBLE is portable and configurable; this tuple does not identify a chip or a specific SDK release."],
+      "sources": ["https://github.com/apache/mynewt-nimble"]
+    },
+    "0D:05F1:FFFF": {
+      "software": ["Zephyr software Link Layer default configuration"],
+      "match_quality": "exact tuple from software defaults; not field-observed",
+      "notes": ["Source-derived default in the inspected Zephyr checkout, not an observed device: LL_VERSION_NUMBER is Bluetooth 5.4; the default controller company ID is 0x05F1 and subversion is 0xFFFF. The inspected nRF52840 Zephyr image also has a confirmed LL_VERSION_IND transmitter for these values.", "The controller company ID and subversion can be changed by Kconfig and, when enabled, by runtime settings; Zephyr supports multiple chips and this tuple does not identify one."],
+      "sources": ["https://github.com/zephyrproject-rtos/zephyr", "user_zephyr_v4.4.1_tmap_peripheral_nrf52840_SuperGPT5.6_sol_ultra_renames_2026-07-11"]
+    }
+  },
+  "pattern_matches": [
+    {
+      "vendor": "Nordic Semiconductor",
+      "company_id": "0x0059",
+      "controller": "Nordic SoftDevice Controller",
+      "match_quality": "Nordic SoftDevice Controller family/build pattern match",
+      "subversion_family_mask": "0xF000",
+      "subversion_build_mask": "0x0FFF",
+      "notes": ["Observed Nordic encoding: the upper nibble selects a target family and the lower 12 bits select a controller build; this is an implementation pattern, not hardware attestation."],
+      "family_build_allowlists": {
+        "0x3000": ["0x18F", "0x2DF", "0x303", "0x466", "0x499", "0x1FB", "0x04E", "0x06B", "0x09A", "0x0FD", "0x256", "0x0E8", "0x0F3", "0x069", "0x020", "0x05E", "0x06A", "0x07E", "0x0A3", "0x01F", "0x048", "0x053", "0x057", "0x039", "0x080", "0x08B"],
+        "0x4000": ["0x18F", "0x2DF", "0x303", "0x466", "0x499", "0x1FB", "0x04E", "0x06B", "0x09A", "0x0FD", "0x256", "0x0E8", "0x0F3", "0x069", "0x020", "0x05E", "0x06A", "0x07E", "0x0A3", "0x01F", "0x048", "0x053", "0x057", "0x039", "0x080", "0x08B"]
+      },
+      "families": {
+        "0x1000": {
+          "name": "nRF52 target",
+          "chips": ["nRF52 family (exact part not determined by this tuple)"]
+        },
+        "0x2000": {
+          "name": "nRF53 target",
+          "chips": ["nRF5340"]
+        },
+        "0x3000": {
+          "name": "nRF54L-class target",
+          "chips": ["nRF54L-class family (exact part not determined by this tuple)"],
+          "notes": ["On controller releases that support nRF54LM/LS/LV, the 0x3xxx value does not distinguish those subfamilies from nRF54L."]
+        },
+        "0x4000": {
+          "name": "nRF54H target",
+          "chips": ["nRF54H20"]
+        }
+      },
+      "builds": {
+        "0x123": {"ll_version": "0x0B", "sdk_versions": ["nRF Connect SDK 1.4.0", "nRF Connect SDK 1.4.1", "nRF Connect SDK 1.4.2"]},
+        "0x190": {"ll_version": "0x0B", "sdk_versions": ["nRF Connect SDK 1.5.0"]},
+        "0x1C2": {"ll_version": "0x0B", "sdk_versions": ["nRF Connect SDK 1.5.1", "nRF Connect SDK 1.5.2"]},
+        "0x213": {"ll_version": "0x0B", "sdk_versions": ["nRF Connect SDK 1.6.0"]},
+        "0x22B": {"ll_version": "0x0B", "sdk_versions": ["nRF Connect SDK 1.6.1"]},
+        "0x25B": {"ll_version": "0x0B", "sdk_versions": ["nRF Connect SDK 1.7.0", "nRF Connect SDK 1.7.1"]},
+        "0x2B0": {"ll_version": "0x0B", "sdk_versions": ["nRF Connect SDK 1.8.0"]},
+        "0x2FE": {"ll_version": "0x0B", "sdk_versions": ["nRF Connect SDK 1.9.0", "nRF Connect SDK 1.9.1"]},
+        "0x398": {"ll_version": "0x0B", "sdk_versions": ["nRF Connect SDK 1.9.2"]},
+        "0x136": {"ll_version": "0x0C", "sdk_versions": ["nRF Connect SDK 2.0.0", "nRF Connect SDK 2.0.1", "nRF Connect SDK 2.0.2"]},
+        "0x1A7": {"ll_version": "0x0C", "sdk_versions": ["nRF Connect SDK 2.1.0", "nRF Connect SDK 2.1.1"]},
+        "0x1D8": {"ll_version": "0x0C", "sdk_versions": ["nRF Connect SDK 2.1.2"]},
+        "0x1FF": {"ll_version": "0x0C", "sdk_versions": ["nRF Connect SDK 2.1.3"]},
+        "0x260": {"ll_version": "0x0C", "sdk_versions": ["nRF Connect SDK 2.1.4"]},
+        "0x1FA": {"ll_version": "0x0C", "sdk_versions": ["nRF Connect SDK 2.2.0"]},
+        "0x24B": {"ll_version": "0x0C", "sdk_versions": ["nRF Connect SDK 2.3.0"]},
+        "0x077": {"ll_version": "0x0D", "sdk_versions": ["nRF Connect SDK 2.4.0", "nRF Connect SDK 2.4.1", "nRF Connect SDK 2.4.2"]},
+        "0x166": {"ll_version": "0x0D", "sdk_versions": ["nRF Connect SDK 2.4.3", "nRF Connect SDK 2.4.4"]},
+        "0x102": {"ll_version": "0x0D", "sdk_versions": ["nRF Connect SDK 2.5.0", "nRF Connect SDK 2.5.1"]},
+        "0x168": {"ll_version": "0x0D", "sdk_versions": ["nRF Connect SDK 2.5.2", "nRF Connect SDK 2.5.3"]},
+        "0x18F": {"ll_version": "0x0D", "sdk_versions": ["nRF Connect SDK 2.6.0", "nRF Connect SDK 2.6.1", "nRF Connect SDK 2.6.2"]},
+        "0x2DF": {"ll_version": "0x0D", "sdk_versions": ["nRF Connect SDK 2.6.3"]},
+        "0x303": {"ll_version": "0x0D", "sdk_versions": ["nRF Connect SDK 2.6.4"]},
+        "0x466": {"ll_version": "0x0D", "sdk_versions": ["nRF Connect SDK 2.6.5"]},
+        "0x499": {"ll_version": "0x0D", "sdk_versions": ["nRF Connect SDK 2.6.6"]},
+        "0x1FB": {"ll_version": "0x0D", "sdk_versions": ["nRF Connect SDK 2.7.0"]},
+        "0x04E": {"ll_version": "0x0E", "sdk_versions": ["nRF Connect SDK 2.8.0"]},
+        "0x06B": {"ll_version": "0x0E", "sdk_versions": ["nRF Connect SDK 2.9.0"]},
+        "0x09A": {"ll_version": "0x0E", "sdk_versions": ["nRF Connect SDK 2.9.1"]},
+        "0x0FD": {"ll_version": "0x0E", "sdk_versions": ["nRF Connect SDK 2.9.2"]},
+        "0x256": {"ll_version": "0x0E", "sdk_versions": ["nRF Connect SDK 2.9.3"]},
+        "0x0E8": {"ll_version": "0x0E", "sdk_versions": ["nRF Connect SDK 3.0.0"]},
+        "0x0F3": {"ll_version": "0x0E", "sdk_versions": ["nRF Connect SDK 3.0.1", "nRF Connect SDK 3.0.2"]},
+        "0x069": {"ll_version": "0x0F", "sdk_versions": ["nRF Connect SDK 3.1.0", "nRF Connect SDK 3.1.1"]},
+        "0x020": {"ll_version": "0x10", "sdk_versions": ["nRF Connect SDK 3.2.0", "nRF Connect SDK 3.2.1"]},
+        "0x05E": {"ll_version": "0x10", "sdk_versions": ["nRF Connect SDK 3.2.2"]},
+        "0x06A": {"ll_version": "0x10", "sdk_versions": ["nRF Connect SDK 3.2.3"]},
+        "0x07E": {"ll_version": "0x10", "sdk_versions": ["nRF Connect SDK 3.2.4", "nRF Connect SDK 3.2.5"]},
+        "0x0A3": {"ll_version": "0x10", "sdk_versions": ["nRF Connect SDK 3.3.0"]},
+        "0x01F": {"ll_version": "0x11", "sdk_versions": ["nRF Connect SDK 3.3.1"]},
+        "0x048": {"ll_version": "0x11", "sdk_versions": ["nRF Connect SDK 3.3.2"]},
+        "0x053": {"ll_version": "0x11", "sdk_versions": ["nRF Connect SDK 3.3.3"]},
+        "0x057": {"ll_version": "0x11", "sdk_versions": ["nRF Connect SDK 3.3.4"]},
+        "0x039": {"ll_version": "0x11", "sdk_versions": ["nRF Connect SDK 3.4.0"]},
+        "0x080": {"ll_version": "0x11", "sdk_versions": ["nRF Connect SDK 3.4.1"]},
+        "0x08B": {"ll_version": "0x11", "sdk_versions": ["nrfxlib main snapshot after nRF Connect SDK 3.4.0"], "notes": ["Observed in the downloaded main-branch manifests; not assigned to a stable NCS release in this metadata snapshot."]}
+      }
+    }
+  ],
+  "vendor_version_hints": [
+    {
+      "company_id": "0x0059",
+      "ll_version_min": "0x06",
+      "ll_version_max": "0x06",
+      "software": ["Nordic nRF51-era controller firmware (exact release unknown)"],
+      "chips": ["nRF51 family"],
+      "sdk_versions": ["Older nRF51 SDK generation"],
+      "notes": ["VersNr 0x06 denotes Bluetooth Core 4.0."]
+    },
+    {
+      "company_id": "0x0059",
+      "ll_version_min": "0x07",
+      "ll_version_max": "0x07",
+      "software": ["Nordic nRF51 SoftDevice/controller (exact release unknown)"],
+      "chips": ["nRF51 family"],
+      "sdk_versions": ["nRF51 SDK generation"],
+      "notes": ["All stock Nordic VersNr 0x07 combinations inspected are nRF51-era Bluetooth 4.1 controllers."]
+    },
+    {
+      "company_id": "0x0059",
+      "ll_version_min": "0x08",
+      "ll_version_max": "0x08",
+      "software": ["Nordic SoftDevice/controller (exact release unknown)"],
+      "chips": ["nRF51 running S130", "nRF52832 running an early S132"],
+      "sdk_versions": ["nRF5 SDK 8.x through 13.x generation"],
+      "notes": ["VersNr 0x08 alone is ambiguous between the nRF51 and nRF52 generations."]
+    },
+    {
+      "company_id": "0x0059",
+      "ll_version_min": "0x09",
+      "ll_version_max": "0xFF",
+      "software": ["Nordic controller firmware (exact release unknown)"],
+      "chips": ["nRF52 or newer Nordic family"],
+      "sdk_versions": ["Exact SDK release unknown"],
+      "notes": ["For stock Nordic controller firmware, VersNr 0x09 or higher means nRF51 excluded."]
+    }
+  ]
+}

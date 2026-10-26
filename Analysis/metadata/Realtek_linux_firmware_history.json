@@ -1,0 +1,736 @@
+{
+  "schema_version": 2,
+  "description": "Realtek patched-controller SubVersNr fingerprints mined from current and historical official linux-firmware rtl_bt images.",
+  "source_repository": "https://gitlab.com/kernel-firmware/linux-firmware/-/tree/main/rtl_bt",
+  "file_history_url_template": "https://gitlab.com/kernel-firmware/linux-firmware/-/commits/main/rtl_bt/{filename}",
+  "source_driver": "https://github.com/torvalds/linux/blob/master/drivers/bluetooth/btrtl.c",
+  "researched_through": "2026-09-22",
+  "local_snapshot": "/lib/firmware/rtl_bt",
+  "legacy_epatch_method": "For files beginning with ASCII Realtech, bytes 8..11 are the little-endian 32-bit firmware version. Linux copies that version into the downloaded patch; its low 16 bits become the reported SubVersNr.",
+  "rtbtcore_method": "For files beginning with ASCII RTBTCore, bytes 8..15 describe the container, not SubVersNr. Records use controller versions named by official linux-firmware commits and verified as little-endian bytes inside the corresponding binary.",
+  "scope_note": "Patch values attributable to one chip family identify that family. Cross-chip collisions are retained as explicitly ambiguous fingerprints whose full chip lists must be reported. RTBTCore releases without a stated and byte-verified controller version are omitted.",
+  "unique_patch_subversions": {
+    "0x0634": {
+      "chips": [
+        "Realtek RTL8852A"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852au_fw.bin": "0xDFB80634"
+      }
+    },
+    "0x0673": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8822cs_fw.bin": "0x0673",
+        "rtl8822cu_fw.bin": "0x0673"
+      }
+    },
+    "0x0D54": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cs_fw.bin": "0x05990D54"
+      }
+    },
+    "0x127B": {
+      "chips": [
+        "Realtek RTL8852A"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852au_fw.bin": "0xD9A9127B"
+      }
+    },
+    "0x145F": {
+      "chips": [
+        "Realtek RTL8852A"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852au_fw.bin": "0xDFC8145F"
+      }
+    },
+    "0x154B": {
+      "chips": [
+        "Realtek RTL8852B"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852bu_fw.bin": "0x098B154B"
+      }
+    },
+    "0x16ED": {
+      "chips": [
+        "Realtek RTL8852BT/RTL8852BE-VT"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852btu_fw.bin": "0x17E916ED"
+      }
+    },
+    "0x17DA": {
+      "chips": [
+        "Realtek RTL8852A"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852au_fw.bin": "0xD9D617DA"
+      }
+    },
+    "0x1A4A": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cs_fw.bin": "0x05A91A4A",
+        "rtl8822cu_fw.bin": "0x09A91A4A"
+      }
+    },
+    "0x1D69": {
+      "chips": [
+        "Realtek RTL8852A"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852au_fw.bin": "0xD9A91D69"
+      }
+    },
+    "0x1F5E": {
+      "chips": [
+        "Realtek RTL8852B"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852bu_fw.bin": "0x04BE1F5E"
+      }
+    },
+    "0x21E4": {
+      "chips": [
+        "Realtek RTL8821C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8821c_fw.bin": "0x829A21E4"
+      }
+    },
+    "0x25CB": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cs_fw.bin": "0x059A25CB"
+      }
+    },
+    "0x281A": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cu_fw.bin": "0x099A281A"
+      }
+    },
+    "0x313A": {
+      "chips": [
+        "Realtek RTL8822B"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822b_fw.bin": "0xAB5C313A"
+      }
+    },
+    "0x3AA1": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cu_fw.bin": "0x09993AA1"
+      }
+    },
+    "0x4008": {
+      "chips": [
+        "Realtek RTL8852B"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852bu_fw.bin": "0x048F4008"
+      }
+    },
+    "0x407B": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cs_fw.bin": "0x0FD6407B",
+        "rtl8822cu_fw.bin": "0x0ED6407B"
+      }
+    },
+    "0x462E": {
+      "chips": [
+        "Realtek RTL8723BS"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8723bs_fw.bin": "0x365D462E"
+      }
+    },
+    "0x480D": {
+      "chips": [
+        "Realtek RTL8852A"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852au_fw.bin": "0xDAC7480D"
+      }
+    },
+    "0x4E04": {
+      "chips": [
+        "Realtek RTL8852B"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852bu_fw.bin": "0x42D34E04"
+      }
+    },
+    "0x5037": {
+      "chips": [
+        "Realtek RTL8852B"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852bu_fw.bin": "0x049B5037"
+      }
+    },
+    "0x5A33": {
+      "chips": [
+        "Realtek RTL8852C"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852cu_fw.bin": "0xDFB85A33"
+      }
+    },
+    "0x63F7": {
+      "chips": [
+        "Realtek RTL8852BT/RTL8852BE-VT"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852btu_fw.bin": "0x04D763F7"
+      }
+    },
+    "0x646B": {
+      "chips": [
+        "Realtek RTL8761B*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8761b_fw.bin": "0x0D99646B",
+        "rtl8761bu_fw.bin": "0x0999646B"
+      }
+    },
+    "0x6937": {
+      "chips": [
+        "Realtek RTL8852A"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852au_fw.bin": "0xDBA96937"
+      }
+    },
+    "0x6D7A": {
+      "chips": [
+        "Realtek RTL8852A"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852au_fw.bin": "0xDFB76D7A"
+      }
+    },
+    "0x6D7D": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cs_fw.bin": "0x15B76D7D",
+        "rtl8822cu_fw.bin": "0x19B76D7D"
+      }
+    },
+    "0x6DCB": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cs_fw.bin": "0xB5D66DCB",
+        "rtl8822cu_fw.bin": "0xAED66DCB"
+      }
+    },
+    "0x705C": {
+      "chips": [
+        "Realtek RTL8822B"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822b_fw.bin": "0xAB6B705C"
+      }
+    },
+    "0x70A6": {
+      "chips": [
+        "Realtek RTL8852BT/RTL8852BE-VT"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852btu_fw.bin": "0x047170A6"
+      }
+    },
+    "0x7225": {
+      "chips": [
+        "Realtek RTL8852C"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852cu_fw.bin": "0x040D7225",
+        "rtl8852cu_fw_v2.bin": "0x040D7225"
+      }
+    },
+    "0x7253": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cu_fw.bin": "0x099A7253"
+      }
+    },
+    "0x7330": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cu_fw.bin": "0x087B7330"
+      }
+    },
+    "0x76A3": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cs_fw.bin": "0x059A76A3"
+      }
+    },
+    "0x7893": {
+      "chips": [
+        "Realtek RTL8852A"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852au_fw.bin": "0xD9A87893"
+      }
+    },
+    "0x7C20": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cs_fw.bin": "0x25D77C20",
+        "rtl8822cu_fw.bin": "0x28D77C20"
+      }
+    },
+    "0x8207": {
+      "chips": [
+        "Realtek RTL8852A"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852au_fw.bin": "0xD9B88207"
+      }
+    },
+    "0x842D": {
+      "chips": [
+        "Realtek RTL8852B"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852bu_fw.bin": "0x0474842D"
+      }
+    },
+    "0x8715": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cu_fw.bin": "0x08898715"
+      }
+    },
+    "0x8873": {
+      "chips": [
+        "Realtek RTL8723D"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8723d_fw.bin": "0x826C8873"
+      }
+    },
+    "0x8A4F": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cs_fw.bin": "0x05998A4F"
+      }
+    },
+    "0x8A6B": {
+      "chips": [
+        "Realtek RTL8761B*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8761b_fw.bin": "0x0CA98A6B",
+        "rtl8761bu_fw.bin": "0x09A98A6B"
+      }
+    },
+    "0x91B6": {
+      "chips": [
+        "Realtek RTL8852A"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852au_fw.bin": "0x244F91B6"
+      }
+    },
+    "0x91CB": {
+      "chips": [
+        "Realtek RTL8852B"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852bu_fw.bin": "0xDFB791CB"
+      }
+    },
+    "0x9301": {
+      "chips": [
+        "Realtek RTL8852B"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852bu_fw.bin": "0x04479301"
+      }
+    },
+    "0x94A4": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cu_fw.bin": "0x098A94A4"
+      }
+    },
+    "0x96F1": {
+      "chips": [
+        "Realtek RTL8723D"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8723d_fw.bin": "0x828A96F1"
+      }
+    },
+    "0x9F73": {
+      "chips": [
+        "Realtek RTL8723B"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8723b_fw.bin": "0x0E2F9F73"
+      }
+    },
+    "0xA041": {
+      "chips": [
+        "Realtek RTL8821A"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8821a_fw.bin": "0x0E2FA041"
+      }
+    },
+    "0xA0CB": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cs_fw.bin": "0x05A8A0CB",
+        "rtl8822cu_fw.bin": "0x09A8A0CB"
+      }
+    },
+    "0xA0CD": {
+      "chips": [
+        "Realtek RTL8852A"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852au_fw.bin": "0xD9A8A0CD"
+      }
+    },
+    "0xA40A": {
+      "chips": [
+        "Realtek RTL8852C"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852cu_fw.bin": "0xD5B8A40A"
+      }
+    },
+    "0xA99E": {
+      "chips": [
+        "Realtek RTL8821C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8821c_fw.bin": "0x826CA99E"
+      }
+    },
+    "0xABD3": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cu_fw.bin": "0xFFB8ABD3"
+      }
+    },
+    "0xABD6": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cs_fw.bin": "0xFFB8ABD6"
+      }
+    },
+    "0xADBA": {
+      "chips": [
+        "Realtek RTL8852BT/RTL8852BE-VT"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852btu_fw.bin": "0x3BACADBA"
+      }
+    },
+    "0xB20F": {
+      "chips": [
+        "Realtek RTL8852B"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852bu_fw.bin": "0xDBC6B20F"
+      }
+    },
+    "0xBA06": {
+      "chips": [
+        "Realtek RTL8852BT/RTL8852BE-VT"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852btu_fw.bin": "0x1881BA06"
+      }
+    },
+    "0xBBFD": {
+      "chips": [
+        "Realtek RTL8852C"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852cu_fw.bin": "0xDFB7BBFD"
+      }
+    },
+    "0xC1D9": {
+      "chips": [
+        "Realtek RTL8852A"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852au_fw.bin": "0xDBB7C1D9"
+      }
+    },
+    "0xC2B4": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cu_fw.bin": "0x0998C2B4"
+      }
+    },
+    "0xC6B4": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cs_fw.bin": "0x05A8C6B4"
+      }
+    },
+    "0xC65F": {
+      "chips": [
+        "Realtek RTL8852BT/RTL8852BE-VT"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852btu_fw.bin": "0x06EBC65F"
+      }
+    },
+    "0xC905": {
+      "chips": [
+        "Realtek RTL8922A"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8922au_fw.bin": "0x41C0C905"
+      }
+    },
+    "0xD230": {
+      "chips": [
+        "Realtek RTL8851B"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8851bu_fw.bin": "0x048AD230"
+      }
+    },
+    "0xD2E3": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8822cs_fw.bin": "0x05C6D2E3",
+        "rtl8822cu_fw.bin": "0x0CC6D2E3"
+      }
+    },
+    "0xD3F3": {
+      "chips": [
+        "Realtek RTL8761CU"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8761cu_fw.bin": "0x4618D3F3"
+      }
+    },
+    "0xD82F": {
+      "chips": [
+        "Realtek RTL8723CS"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8723cs_xx_fw.bin": "0x6A4DD82F"
+      }
+    },
+    "0xD922": {
+      "chips": [
+        "Realtek RTL8761B*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8761b_fw.bin": "0x9DC6D922",
+        "rtl8761bu_fw.bin": "0xDFC6D922"
+      }
+    },
+    "0xD962": {
+      "chips": [
+        "Realtek RTL8822C*"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8822cu_fw.bin": "0x2B66D962"
+      }
+    },
+    "0xDB55": {
+      "chips": [
+        "Realtek RTL8852BT/RTL8852BE-VT"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852btu_fw.bin": "0x488CDB55"
+      }
+    },
+    "0xF098": {
+      "chips": [
+        "Realtek RTL8821C*"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8821c_fw.bin": "0x75B8F098",
+        "rtl8821cs_fw.bin": "0x75B8F098"
+      }
+    },
+    "0xFABF": {
+      "chips": [
+        "Realtek RTL8852C"
+      ],
+      "format": "legacy_epatch",
+      "firmware_images": {
+        "rtl8852cu_fw.bin": "0xD7B8FABF"
+      }
+    },
+    "0xFD78": {
+      "chips": [
+        "Realtek RTL8852B"
+      ],
+      "format": "rtbtcore",
+      "firmware_images": {
+        "rtl8852bu_fw.bin": "0x127CFD78"
+      }
+    }
+  },
+  "cross_chip_collisions": {
+    "0x020A": {
+      "chips": [
+        "Realtek RTL8192EE",
+        "Realtek RTL8192EU",
+        "Realtek RTL8812AE"
+      ],
+      "firmware_images": {
+        "rtl8192ee_fw.bin": "0x0E2F020A",
+        "rtl8192eu_fw.bin": "0x1E2F020A",
+        "rtl8812ae_fw.bin": "0x0E2F020A"
+      }
+    },
+    "0x4380": {
+      "chips": [
+        "Realtek RTL8723A",
+        "Realtek RTL8761A"
+      ],
+      "firmware_images": {
+        "rtl8723a_fw.bin": "0x0E3E4380",
+        "rtl8761a_fw.bin": "0x0E3E4380"
+      }
+    },
+    "0x7644": {
+      "chips": [
+        "Realtek RTL8821C*",
+        "Realtek RTL8852A"
+      ],
+      "firmware_images": {
+        "rtl8821c_fw.bin": "0x829A7644",
+        "rtl8852au_fw.bin": "0xD99A7644"
+      }
+    }
+  }
+}

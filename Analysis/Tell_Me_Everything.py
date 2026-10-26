@@ -321,6 +321,12 @@ def main():
     import_metadata_v2()
     import_private_metadata_v2()
 
+    # Import LL_VERSION_IND controller/firmware fingerprints
+    import_LL_VERSION_IND_metadata()
+
+    # Import LMP_VERSION_REQ/RES controller/firmware fingerprints
+    import_LMP_VERSION_metadata()
+
     # Import CLUES
     import_CLUES()
     import_private_CLUES()
