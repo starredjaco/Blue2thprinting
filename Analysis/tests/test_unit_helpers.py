@@ -168,6 +168,37 @@ class TestLLVersionIndMetadata:
         assert any('not verified from an on-air capture' in note
                    for note in result['notes'])
 
+    def test_nxp_k32w0_tuple_spans_sdk_releases(self):
+        result = lookup_LL_VERSION_IND_metadata(0x09, 0x0025, 0x0415)
+        assert 'NXP QN9090' in result['chips']
+        assert 'NXP K32W061' in result['chips']
+        assert result['sdk_versions'] == [
+            'MCUXpresso SDK 2.6.7 through 2.6.16 for K32W0/QN9090'
+        ]
+        assert 'not field-observed' in result['match_quality']
+
+    @pytest.mark.parametrize(('versnr', 'subversion', 'sdk_version'), [
+        (0x0C, 0x1400, 'MCUXpresso SDK 24.12.00'),
+        (0x0E, 0x1400, 'MCUXpresso SDK 25.09.00'),
+        (0x0F, 0x1400, 'MCUXpresso SDK 25.12.00'),
+        (0x0E, 0x1402, 'MCUXpresso SDK 26.06.00 LTS'),
+        (0x11, 0x1402, 'MCUXpresso SDK 26.09.00'),
+    ])
+    def test_nxp_nbu_versnr_narrows_sdk_release(
+        self, versnr, subversion, sdk_version
+    ):
+        result = lookup_LL_VERSION_IND_metadata(versnr, 0x0025, subversion)
+        assert 'NXP KW47' in result['chips']
+        assert sdk_version in result['sdk_versions']
+        assert result['match_quality'].startswith('exact tuple')
+
+    def test_nxp_nbu_unknown_versnr_falls_back_to_family(self):
+        result = lookup_LL_VERSION_IND_metadata(0x0D, 0x0025, 0x1400)
+        assert 'NXP KW45B41' in result['chips']
+        assert 'VersNr not constrained' in result['match_quality']
+        kw47 = lookup_LL_VERSION_IND_metadata(0x12, 0x0025, 0x1402)
+        assert kw47['chips'] == ['NXP KW47', 'NXP MCXW72']
+
     def test_open_link_layer_defaults_do_not_claim_a_chip(self):
         nimble = lookup_LL_VERSION_IND_metadata(0x09, 0x0B65, 0x0000)
         zephyr = lookup_LL_VERSION_IND_metadata(0x0D, 0x05F1, 0xFFFF)
@@ -223,17 +254,12 @@ class TestLLVersionIndMetadata:
         assert asr['sources'] == ['ASR582x_gpt6.0_sol_renames_2026-10-09']
 
     def test_lmp_metadata_contains_same_extracted_chip_matches(self):
-        assert len(TME.TME_glob.ll_version_ind_metadata[
-            'company_subversion_matches'
-        ]) == 52
-        assert (
-            TME.TME_glob.ll_version_ind_metadata[
-                'company_subversion_matches'
-            ]
-            == TME.TME_glob.lmp_version_metadata[
-                'company_subversion_matches'
-            ]
-        )
+        ll = TME.TME_glob.ll_version_ind_metadata['company_subversion_matches']
+        lmp = TME.TME_glob.lmp_version_metadata['company_subversion_matches']
+        assert len(lmp) == 52
+        assert {k: ll[k] for k in lmp} == lmp
+        # BLE-only controllers have no LMP counterpart.
+        assert set(ll) - set(lmp) == {'0025:1400', '0025:1402'}
 
         result = lookup_LMP_VERSION_metadata(0x0C, 0x005D, 0xD922)
         assert result['chips'] == ['Realtek RTL8761B*']

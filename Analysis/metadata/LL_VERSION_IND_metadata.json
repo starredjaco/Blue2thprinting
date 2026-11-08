@@ -57,7 +57,9 @@
     "000F:6607": {"vendor": "Broadcom", "chips": ["Broadcom BCM4350C5"], "display_name": "Broadcom BCM4350C5", "sources": ["https://web.archive.org/web/20221028063755/http://github.com/torvalds/linux/blob/master/drivers/bluetooth/btbcm.c"], "notes": ["Inferred from Linux's bcm_usb_subver_table; not independently confirmed for LL_VERSION_IND or LMP_VERSION."]},
     "005D:8762": {"vendor": "Realtek", "chips": ["Realtek RTL8762"], "display_name": "Realtek RTL8762 (running unpatched)", "firmware_state": "unpatched", "sources": ["FCC 2AB73-2208A exhibit 6664696 (internal photos)"]},
     "005D:D922": {"vendor": "Realtek", "chips": ["Realtek RTL8761B*"], "display_name": "Realtek RTL8761B* (running patch version 0xd922)", "firmware_state": "patched", "patch_version": "0xD922", "sources": ["FCC 2BCGWUB500PLUS exhibit 7446627 (internal photos)"], "notes": ["Identification also incorporates prior Realtek reverse-engineering results."]},
-    "005D:8761": {"vendor": "Realtek", "chips": ["Realtek RTL8761B*"], "display_name": "Realtek RTL8761B* (running unpatched)", "firmware_state": "unpatched", "sources": ["FCC 2BCGWUB500PLUS exhibit 7446627 (internal photos)"], "notes": ["Identification also incorporates prior Realtek reverse-engineering results."]}
+    "005D:8761": {"vendor": "Realtek", "chips": ["Realtek RTL8761B*"], "display_name": "Realtek RTL8761B* (running unpatched)", "firmware_state": "unpatched", "sources": ["FCC 2BCGWUB500PLUS exhibit 7446627 (internal photos)"], "notes": ["Identification also incorporates prior Realtek reverse-engineering results."]},
+    "0025:1400": {"vendor": "NXP", "chips": ["NXP KW45B41", "NXP K32W1", "NXP MCXW71", "NXP KW47", "NXP MCXW72"], "display_name": "NXP KW45B41/K32W1/MCXW71 or KW47/MCXW72 NBU controller", "sources": ["https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-bluetooth-controller/tree/f75dee7b2bcbfa8965e4641540ee27f0336c969b", "https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-bluetooth-controller/tree/f2d182516521892010acdeb5e887f19cb532a61e"], "notes": ["Shared by every KW45B41/K32W1/MCXW71 NBU image from MCUXpresso SDK 2.15.000 through 25.12.00 and by every KW47/MCXW72 image through 25.12.00; it identifies the family, not one chip. The exact VersNr entries narrow the SDK range.", "From SDK 26.03.00 the KW45B41/K32W1/MCXW71 images fill the subversion source at runtime, so their SubVersNr was not resolved statically."]},
+    "0025:1402": {"vendor": "NXP", "chips": ["NXP KW47", "NXP MCXW72"], "display_name": "NXP KW47/MCXW72 NBU controller (MCUXpresso SDK 26.06 or later)", "sources": ["https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-bluetooth-controller/tree/499167a21e45c2e00a75f8d60b045f925129c570", "https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-bluetooth-controller/tree/565ed4965a2645c5c1fceb5cc25b2ee28c545ca4"], "notes": ["Seen in KW47/MCXW72 hosted NBU images from MCUXpresso SDK 26.06.00-pvw2 through 26.09.00."]}
   },
   "exact_matches": {
     "0A:02FF:0001": {
@@ -477,6 +479,69 @@
       "match_quality": "exact tuple from software defaults; not field-observed",
       "notes": ["Source-derived default in the inspected Zephyr checkout, not an observed device: LL_VERSION_NUMBER is Bluetooth 5.4; the default controller company ID is 0x05F1 and subversion is 0xFFFF. The inspected nRF52840 Zephyr image also has a confirmed LL_VERSION_IND transmitter for these values.", "The controller company ID and subversion can be changed by Kconfig and, when enabled, by runtime settings; Zephyr supports multiple chips and this tuple does not identify one."],
       "sources": ["https://web.archive.org/web/20260805202404/https://github.com/zephyrproject-rtos/zephyr", "user_zephyr_v4.4.1_tmap_peripheral_nrf52840_SuperGPT5.6_sol_ultra_renames_2026-07-11"]
+    },
+    "09:0025:0415": {
+      "vendor": "NXP",
+      "software": ["NXP K32W0/QN9090 BLE controller library (RivieraWaves-derived; rwble_version 9.4.21)"],
+      "chips": ["NXP QN9090", "NXP QN9030", "NXP K32W061", "NXP K32W041", "NXP K32W041A", "NXP K32W041AM"],
+      "sdk_versions": ["MCUXpresso SDK 2.6.7 through 2.6.16 for K32W0/QN9090"],
+      "match_quality": "exact tuple from static controller library; not field-observed",
+      "notes": ["llc_llcp_version_ind_pdu_send hard-codes VersNr 0x09, CompId 0x0025 and SubVersNr 0x0415 (RivieraWaves minor 4, build 21) in all three lib_ble_controller variants.", "Unchanged in every K32W0 SDK delivery from 2.6.7 (2022-10) to 2.6.16 (2025-02), so it does not indicate an SDK version. The K32W061 BLE HCI images shipped in EtherMind (2022-01 and 2024-10) use the same code."],
+      "sources": ["https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-bluetooth-controller/tree/d50abf097653db1eef564f2271fc427930dc3465", "https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-bluetooth-controller/tree/b5525ccce218f4bf3f3412c9173ebd7c726deacc", "https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-ethermind/tree/c33ac9e10cc3472af88ae381e08232af2f86bb8a/port/pal/mcux/bluetooth/controller/k32w061"]
+    },
+    "0C:0025:1400": {
+      "vendor": "NXP",
+      "software": ["NXP KW4x NBU BLE controller firmware 1.9.14 through 1.9.22"],
+      "chips": ["NXP KW45B41", "NXP K32W1", "NXP MCXW71", "NXP KW47", "NXP MCXW72"],
+      "sdk_versions": ["MCUXpresso SDK 2.16.000", "MCUXpresso SDK 2.16.100", "MCUXpresso SDK 24.12.00", "MCUXpresso SDK 25.03.00"],
+      "match_quality": "exact tuple from prebuilt NBU images and libraries; not field-observed",
+      "notes": ["All KW45B41/K32W1/MCXW71 NBU images in SDK 2.16.000 through 24.12.00 use VersNr 0x0C (Core 5.3); in 25.03.00 and the 25.06.00 previews only the plain *_nbu_ble_hosted image still does. KW47/MCXW72 use it only in 24.12.00 (and the KW47 Matter-hosted library through 25.03.00).", "VersNr is the NBU default: _ROM_hcic_HciResetFactoryDefaultSettings sets it to _gucCompatibilityMode + 1, and a vendor command appears able to change compatibility mode at runtime.", "SubVersNr is 0x1400 | (get_firmware_version() >> 24); get_firmware_version returns the constant 0x00102000 in these builds."],
+      "sources": ["https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-bluetooth-controller/tree/f75dee7b2bcbfa8965e4641540ee27f0336c969b", "https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-bluetooth-controller/tree/36fec038f52171d46a0804434144c600c4233e9f", "https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-bluetooth-controller/tree/3136d92bbb87498dc71a3c17cff46be843352d3c"]
+    },
+    "0E:0025:1400": {
+      "vendor": "NXP",
+      "software": ["NXP KW4x NBU BLE controller firmware 1.9.20 through 1.9.29"],
+      "chips": ["NXP KW45B41", "NXP K32W1", "NXP MCXW71", "NXP KW47", "NXP MCXW72"],
+      "sdk_versions": ["MCUXpresso SDK 25.03.00", "MCUXpresso SDK 25.06.00", "MCUXpresso SDK 25.09.00", "MCUXpresso SDK 25.12.00"],
+      "match_quality": "exact tuple from prebuilt NBU images and libraries; not field-observed",
+      "notes": ["VersNr 0x0E (Core 6.0). KW45B41/K32W1/MCXW71 HADM and XP images use it from SDK 25.03.00 and the plain hosted image from 25.06.00; KW47/MCXW72 all-hosted images use it from 25.03.00. All continue through 25.12.00, except the 25.12.00 XP images, which use 0x0F.", "VersNr is the NBU default: _ROM_hcic_HciResetFactoryDefaultSettings sets it to _gucCompatibilityMode + 1, and a vendor command appears able to change compatibility mode at runtime.", "SubVersNr is 0x1400 | (get_firmware_version() >> 24); get_firmware_version returns the constant 0x00102000 in these builds."],
+      "sources": ["https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-bluetooth-controller/tree/3136d92bbb87498dc71a3c17cff46be843352d3c", "https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-bluetooth-controller/tree/28e4e906b7d5971bdebf389905f33200900bd2c9", "https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-bluetooth-controller/tree/f2d182516521892010acdeb5e887f19cb532a61e"]
+    },
+    "0F:0025:1400": {
+      "vendor": "NXP",
+      "software": ["NXP KW4x NBU BLE controller firmware 1.9.28 and 1.9.29, experimental (XP) images"],
+      "chips": ["NXP KW45B41", "NXP K32W1", "NXP MCXW71", "NXP KW47", "NXP MCXW72"],
+      "sdk_versions": ["MCUXpresso SDK 25.12.00"],
+      "match_quality": "exact tuple from prebuilt NBU images and libraries; not field-observed",
+      "notes": ["VersNr 0x0F (Core 6.1) appears only in the *_nbu_ble_xp_hosted images of SDK 25.12.00-pvw2 and 25.12.00; the standard images in the same release use 0x0E.", "VersNr is the NBU default: _ROM_hcic_HciResetFactoryDefaultSettings sets it to _gucCompatibilityMode + 1, and a vendor command appears able to change compatibility mode at runtime.", "SubVersNr is 0x1400 | (get_firmware_version() >> 24); get_firmware_version returns the constant 0x00102000 in these builds."],
+      "sources": ["https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-bluetooth-controller/tree/f2d182516521892010acdeb5e887f19cb532a61e"]
+    },
+    "0E:0025:1402": {
+      "vendor": "NXP",
+      "software": ["NXP KW47 NBU BLE controller firmware 1.9.35"],
+      "chips": ["NXP KW47", "NXP MCXW72"],
+      "sdk_versions": ["MCUXpresso SDK 26.06.00 LTS"],
+      "match_quality": "exact tuple from prebuilt NBU images and libraries; not field-observed",
+      "notes": ["Seen in the KW47/MCXW72 hosted NBU image of SDK 26.06.00 LTS. The 26.03.00 KW47 images also report VersNr 0x0E, but their SubVersNr is filled at runtime and was not resolved.", "VersNr is the NBU default: _ROM_hcic_HciResetFactoryDefaultSettings sets it to _gucCompatibilityMode + 1, and a vendor command appears able to change compatibility mode at runtime.", "SubVersNr is 0x1400 | the high byte of an initialized NBU firmware-version word (0x02 in these builds)."],
+      "sources": ["https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-bluetooth-controller/tree/6332e6e12dd66314cd6ba53d33247309557cda64"]
+    },
+    "10:0025:1402": {
+      "vendor": "NXP",
+      "software": ["NXP KW47 NBU BLE controller firmware 1.9.34 (preview)"],
+      "chips": ["NXP KW47", "NXP MCXW72"],
+      "sdk_versions": ["MCUXpresso SDK 26.06.00-pvw2 (preview)"],
+      "match_quality": "exact tuple from prebuilt NBU images and libraries; not field-observed",
+      "notes": ["Seen only in the KW47/MCXW72 hosted NBU image of the 26.06.00-pvw2 preview; the 26.06.00 LTS release went back to VersNr 0x0E.", "VersNr is the NBU default: _ROM_hcic_HciResetFactoryDefaultSettings sets it to _gucCompatibilityMode + 1, and a vendor command appears able to change compatibility mode at runtime.", "SubVersNr is 0x1400 | the high byte of an initialized NBU firmware-version word (0x02 in these builds)."],
+      "sources": ["https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-bluetooth-controller/tree/499167a21e45c2e00a75f8d60b045f925129c570"]
+    },
+    "11:0025:1402": {
+      "vendor": "NXP",
+      "software": ["NXP KW47 NBU BLE controller firmware 1.9.37 and 1.9.38"],
+      "chips": ["NXP KW47", "NXP MCXW72"],
+      "sdk_versions": ["MCUXpresso SDK 26.09.00"],
+      "match_quality": "exact tuple from prebuilt NBU images and libraries; not field-observed",
+      "notes": ["Seen in the KW47/MCXW72 hosted NBU images of SDK 26.09.00-pvw2 and 26.09.00.", "VersNr is the NBU default: _ROM_hcic_HciResetFactoryDefaultSettings sets it to _gucCompatibilityMode + 1, and a vendor command appears able to change compatibility mode at runtime.", "SubVersNr is 0x1400 | the high byte of an initialized NBU firmware-version word (0x02 in these builds)."],
+      "sources": ["https://github.com/nxp-mcuxpresso/mcuxsdk-middleware-bluetooth-controller/tree/565ed4965a2645c5c1fceb5cc25b2ee28c545ca4"]
     }
   },
   "pattern_matches": [
