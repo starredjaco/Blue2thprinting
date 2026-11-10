@@ -71,6 +71,19 @@ def test_bdaddr_lookup_device2_gatt(run_tme):
     assert "aa:bb:cc:11:22:02" in rendered_bdaddrs(result.stdout)
 
 
+def test_repeated_bdaddr_renders_each_device_once(run_tme):
+    """Repeated --bdaddr values retain their order and ignore case-only duplicates."""
+    result = run_tme(
+        "--bdaddr", "AA:BB:CC:11:22:01",
+        "--bdaddr", "AA:BB:CC:11:22:02",
+        "--bdaddr", "aa:bb:cc:11:22:01",
+    )
+    assert [match.group(1).lower() for match in _BDADDR_HEADER.finditer(result.stdout)] == [
+        "aa:bb:cc:11:22:01",
+        "aa:bb:cc:11:22:02",
+    ]
+
+
 def test_bdaddr_classic_device3(run_tme):
     """Device 3 has BT Classic EIR data: name + CoD."""
     result = run_tme("--bdaddr", "AA:BB:CC:11:22:03")
