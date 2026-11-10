@@ -509,12 +509,16 @@ def main():
             for entry in args.NOT_UUID_regex:
                 bdaddrs_to_remove.update(get_bdaddrs_by_uuid_regex(entry, args.bdaddr_type))
 
+    # Database lookups return lowercase BDADDRs, while explicit --bdaddr values
+    # retain the user's casing. Compare them without regard to case.
+    bdaddrs_to_remove = {bdaddr.lower() for bdaddr in bdaddrs_to_remove}
+
     # Now that we have all the bdaddrs_to_remove, loop through the bdaddrs list and remove them
     qprint(f"{len(bdaddrs_to_remove)} bdaddrs_to_remove")
     vprint(f"bdaddrs_to_remove = {bdaddrs_to_remove}")
     updated_bdaddrs = []
     for value in bdaddrs:
-        if(value in bdaddrs_to_remove):
+        if(value.lower() in bdaddrs_to_remove):
             continue
         else:
             updated_bdaddrs.append(value)
