@@ -71,6 +71,15 @@ def test_bdaddr_lookup_device2_gatt(run_tme):
     assert "aa:bb:cc:11:22:02" in rendered_bdaddrs(result.stdout)
 
 
+def test_reserved_random_prefix_reports_type_conflict_and_oui(run_tme):
+    """A Random-marked 0b10 address must still show its possible public OUI."""
+    result = run_tme("--bdaddr", "AA:BB:CC:11:22:02")
+    assert "Address type conflict:" in result.stdout
+    assert "0b10 prefix is reserved for Random addresses" in result.stdout
+    assert "Company Name by IEEE OUI (aa:bb:cc):" in result.stdout
+    assert "Random Buggy?" not in result.stdout
+
+
 def test_repeated_bdaddr_renders_each_device_once(run_tme):
     """Repeated --bdaddr values retain their order and ignore case-only duplicates."""
     result = run_tme(
