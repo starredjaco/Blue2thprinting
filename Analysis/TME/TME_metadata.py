@@ -3,7 +3,7 @@
 # Copyright(c) © Dark Mentor LLC 2023-2026
 ########################################
 
-# import re
+import re
 import time
 from TME.TME_helpers import *
 from TME.TME_AdvChan import *
@@ -210,6 +210,77 @@ def lookup_ChipPrint_by_GATT(bdaddr, bdaddr_random):
     # Return something appropriate for printing, or an empty string if no match
     return s
 
+
+def _gatt_uuid16(uuid):
+    """Return a Bluetooth-base UUID16, or None for other UUIDs."""
+    if uuid is None:
+        return None
+    compact = uuid.replace('-', '').lower()
+    if len(compact) == 4:
+        return compact
+    if len(compact) == 32 and compact.startswith('0000') and compact[8:] == '00001000800000805f9b34fb':
+        return compact[4:8]
+    return None
+
+
+def _gatt_value_matches_rule(rule, uuid, value):
+    expected_uuid = rule['uuid'].lower()
+    if uuid is None:
+        if not rule.get('allow_unmapped', False):
+            return False
+    elif _gatt_uuid16(uuid) != expected_uuid:
+        return False
+    if rule['match'] == 'exact':
+        return value.casefold() == rule['pattern'].casefold()
+    if rule['match'] == 'regex':
+        return re.fullmatch(rule['pattern'], value, re.IGNORECASE) is not None
+    raise ValueError(f"Unsupported GATT fingerprint match type: {rule['match']}")
+
+
+def lookup_GATT_value_fingerprints(bdaddr, bdaddr_random):
+    """Match successful GATT reads to chip/module metadata by value and UUID."""
+    rules = TME.TME_glob.gatt_value_fingerprint_rules
+    if not rules:
+        return []
+    if bdaddr_random is None:
+        values = (bdaddr,)
+        where = 'v.bdaddr = %s'
+    else:
+        values = (bdaddr, bdaddr_random)
+        where = 'v.bdaddr = %s AND v.bdaddr_random = %s'
+    query = (
+        'SELECT c.UUID, v.char_value_handle, v.byte_values '
+        'FROM GATT_characteristics_values AS v '
+        'LEFT JOIN GATT_characteristics AS c '
+        'ON c.bdaddr = v.bdaddr AND c.bdaddr_random = v.bdaddr_random '
+        'AND c.char_value_handle = v.char_value_handle '
+        f'WHERE {where} AND v.operation = 11'
+    )
+    matches = []
+    seen = set()
+    for uuid, handle, raw in execute_query(query, values):
+        if not raw:
+            continue
+        try:
+            value = raw.decode('utf-8').rstrip('\x00').strip()
+        except UnicodeDecodeError:
+            continue
+        for rule in rules:
+            if _gatt_value_matches_rule(rule, uuid, value):
+                key = (rule['id'], uuid, handle, value)
+                if key not in seen:
+                    seen.add(key)
+                    matches.append((rule, uuid, value))
+    return matches
+
+
+def _gatt_fingerprint_print_text(rule, uuid, value, field):
+    source = f"GATT 0x{_gatt_uuid16(uuid)}" if uuid else 'unmapped GATT value'
+    return (
+        f"{i2}{string_yellow_bright(rule[field])} "
+        f"[{rule['confidence']}] -> From {source} = {value!r}"
+    )
+
 # If we have a string, we want to see if it matches any of the ChipMaker names, if we treat them as regexes
 # Returns the matched name, or an empty string
 def match_str_to_ChipMaker(str):
@@ -405,6 +476,18 @@ def print_ChipMakerPrint_header_if_needed():
         TME.TME_glob.g_printed_ChipMakerPrint_header = True
 
 
+def print_ModulePrint_header_if_needed():
+    if not TME.TME_glob.g_printed_ModulePrint_header:
+        qprint(f"{i1}ModulePrint:")
+        TME.TME_glob.g_printed_ModulePrint_header = True
+
+
+def print_ModuleMakerPrint_header_if_needed():
+    if not TME.TME_glob.g_printed_ModuleMakerPrint_header:
+        qprint(f"{i1}ModuleMakerPrint:")
+        TME.TME_glob.g_printed_ModuleMakerPrint_header = True
+
+
 def print_ChipMakerPrint_helper_UUID16(indent, UUID16_result, tablename):
     results_found = False
     if(len(UUID16_result) != 0):
@@ -428,7 +511,7 @@ def print_ChipMakerPrint_helper_UUID16(indent, UUID16_result, tablename):
 
 # This function consults with the various sources of information which we might have that suggest a possible ChipMaker, and prints them all
 # If there are conflicting ChipMaker possibilities, it's up to the person to look at the results and determine which source(s) of data they find the most credible
-def print_ChipMakerPrint(bdaddr, bdaddr_random):
+def print_ChipMakerPrint(bdaddr, bdaddr_random, gatt_value_matches=None):
     bdaddr = bdaddr.strip().lower()
     time_profile = False
 
@@ -496,6 +579,14 @@ def print_ChipMakerPrint(bdaddr, bdaddr_random):
         for s in str_list:
             print_ChipMakerPrint_header_if_needed()
             qprint(s)
+
+    if gatt_value_matches is None:
+        gatt_value_matches = lookup_GATT_value_fingerprints(bdaddr, bdaddr_random)
+    for rule, uuid, value in gatt_value_matches:
+        if 'chip_maker' in rule:
+            print_ChipMakerPrint_header_if_needed()
+            qprint(_gatt_fingerprint_print_text(rule, uuid, value, 'chip_maker'))
+            no_results_found = False
 
     #===============#
     # IEEE OUI data #
@@ -683,7 +774,7 @@ def chipprint_by_LMP_VERSION(lmp_version, sub_version, device_BT_CID):
 
 # This function consults with the various sources of information which we might have that suggest a possible Chip, and prints them all
 # If there are conflicting Chip possibilities, it's up to the person to look at the results and determine which source(s) of data they find the most credible
-def print_ChipPrint(bdaddr, bdaddr_random):
+def print_ChipPrint(bdaddr, bdaddr_random, gatt_value_matches=None):
     global g_printed_ChipPrint_header
     bdaddr = bdaddr.strip().lower()
 
@@ -758,6 +849,14 @@ def print_ChipPrint(bdaddr, bdaddr_random):
         qprint(string_yellow_bright(str))
         no_results_found = False
 
+    if gatt_value_matches is None:
+        gatt_value_matches = lookup_GATT_value_fingerprints(bdaddr, bdaddr_random)
+    for rule, uuid, value in gatt_value_matches:
+        if 'chip' in rule and (not str or rule['chip'] not in str):
+            print_ChipPrint_header_if_needed()
+            qprint(_gatt_fingerprint_print_text(rule, uuid, value, 'chip'))
+            no_results_found = False
+
     if(no_results_found):
         vprint(f"{i1}ChipPrint:")
         vprint(f"{i2}No ChipPrint(s) found.")
@@ -771,9 +870,35 @@ def print_ChipPrint(bdaddr, bdaddr_random):
 # ModuleMaker Info
 ########################################
 
+def print_ModuleMakerPrint(bdaddr, bdaddr_random, gatt_value_matches=None):
+    if gatt_value_matches is None:
+        gatt_value_matches = lookup_GATT_value_fingerprints(bdaddr, bdaddr_random)
+    for rule, uuid, value in gatt_value_matches:
+        if 'module_maker' in rule:
+            print_ModuleMakerPrint_header_if_needed()
+            qprint(_gatt_fingerprint_print_text(rule, uuid, value, 'module_maker'))
+    if TME.TME_glob.g_printed_ModuleMakerPrint_header:
+        qprint('')
+    else:
+        vprint(f"{i1}ModuleMakerPrint:")
+        vprint(f"{i2}No ModuleMakerPrint(s) found.")
+
 ########################################
 # Module Info
 ########################################
+
+def print_ModulePrint(bdaddr, bdaddr_random, gatt_value_matches=None):
+    if gatt_value_matches is None:
+        gatt_value_matches = lookup_GATT_value_fingerprints(bdaddr, bdaddr_random)
+    for rule, uuid, value in gatt_value_matches:
+        if 'module' in rule:
+            print_ModulePrint_header_if_needed()
+            qprint(_gatt_fingerprint_print_text(rule, uuid, value, 'module'))
+    if TME.TME_glob.g_printed_ModulePrint_header:
+        qprint('')
+    else:
+        vprint(f"{i1}ModulePrint:")
+        vprint(f"{i2}No ModulePrint(s) found.")
 
 ########################################
 # DeviceMaker Info

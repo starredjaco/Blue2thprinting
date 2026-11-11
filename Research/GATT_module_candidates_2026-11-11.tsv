@@ -1,0 +1,5 @@
+bdaddr	address_type	gatt_uuid	gatt_value	module	module_maker	linked_chip	chip_maker	device_name	manufacturer_name	confidence	source
+00:1E:C0:59:11:CC	public/unspecified	2a24	RN4020	Microchip RN4020	Microchip Technology			MovCT	Microchip	high	B-HIVEMIND Datasheets_and_Documentation/Microchip/ChipToDatasheet.md; Microchip RN4020 product page
+44:B7:D0:7A:4D:52	public/unspecified	2a24	BM71	Microchip BM71	Microchip Technology	Microchip IS1871	Microchip Technology	QT D07A4D52	MCHP	high	B-HIVEMIND Datasheets_and_Documentation/Microchip/ChipToDatasheet.md; Microchip BM70/BM71 datasheet
+DC:0D:30:11:D6:7B	random	2a24	FSC-BT946	Feasycom FSC-BT946	Feasycom			P8	Feasycom	high	https://www.feasycom.com/datasheet/fsc-bt946.pdf
+DC:0D:30:37:A9:0B	public/unspecified	2a24	FSC-BT836	Feasycom FSC-BT836	Feasycom			Matt85-5355	Feasycom	high	https://www.feasycom.com/datasheet/fsc-bt836.pdf

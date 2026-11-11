@@ -36,6 +36,19 @@ def import_metadata_v2():
         TME.TME_glob.metadata_v2 = json.load(f)
 
 
+def import_GATT_value_fingerprints():
+    """Load chip and module fingerprints from observed GATT string values."""
+    path = os.path.normpath(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        '..', 'metadata', 'GATT_value_fingerprints.json',
+    ))
+    with open(path, 'r') as f:
+        data = json.load(f)
+    if data.get('schema_version') != 1:
+        raise ValueError(f"Unsupported GATT value fingerprint schema: {path}")
+    TME.TME_glob.gatt_value_fingerprint_rules = data['rules']
+
+
 def import_LL_VERSION_IND_metadata():
     """Load controller fingerprints keyed by LL_VERSION_IND values.
 

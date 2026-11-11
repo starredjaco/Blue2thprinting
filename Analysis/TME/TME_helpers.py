@@ -1059,6 +1059,8 @@ def print_CLUES_UUID_purpose_if_necessary(indent, UUID):
 def reset_per_bdaddr_globals():
     TME.TME_glob.g_printed_ChipMakerPrint_header = False
     TME.TME_glob.g_printed_ChipPrint_header = False
+    TME.TME_glob.g_printed_ModulePrint_header = False
+    TME.TME_glob.g_printed_ModuleMakerPrint_header = False
     TME.TME_glob.g_printed_unique_id_header = False
     TME.TME_glob.g_printed_possible_unique_id_header = False
 
