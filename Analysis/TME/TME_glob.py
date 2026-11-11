@@ -175,6 +175,7 @@ g_printed_ChipPrint_header = False
 g_printed_ChipMakerPrint_header = False
 g_printed_ModulePrint_header = False
 g_printed_ModuleMakerPrint_header = False
+g_printed_SDKPrint_header = False
 
 ############################################################
 # For smarter handling of Unique ID header printing

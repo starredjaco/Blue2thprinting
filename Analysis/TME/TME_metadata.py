@@ -900,6 +900,69 @@ def print_ModulePrint(bdaddr, bdaddr_random, gatt_value_matches=None):
         vprint(f"{i1}ModulePrint:")
         vprint(f"{i2}No ModulePrint(s) found.")
 
+
+def print_SDKPrint(bdaddr, bdaddr_random, gatt_value_matches=None):
+    """Show observed GATT SDK labels and compatible LL SDK releases."""
+    if gatt_value_matches is None:
+        gatt_value_matches = lookup_GATT_value_fingerprints(bdaddr, bdaddr_random)
+
+    lines = []
+    for rule, uuid, value in gatt_value_matches:
+        if 'sdk' in rule:
+            source = f"GATT 0x{_gatt_uuid16(uuid)}" if uuid else 'unmapped GATT value'
+            lines.append(
+                f"{i2}{string_yellow_bright(rule['sdk'])} [{rule['confidence']}] "
+                f"-> Observed build string {value!r} ({source})"
+            )
+
+    if bdaddr_random is None:
+        query = 'SELECT ll_version, device_BT_CID, ll_sub_version FROM LL_VERSION_IND WHERE bdaddr = %s'
+        values = (bdaddr,)
+    else:
+        query = (
+            'SELECT ll_version, device_BT_CID, ll_sub_version FROM LL_VERSION_IND '
+            'WHERE bdaddr = %s AND bdaddr_random = %s'
+        )
+        values = (bdaddr, bdaddr_random)
+    seen_tuples = set()
+    for ll_version, company_id, subversion in execute_query(query, values):
+        ll_tuple = (ll_version, company_id, subversion)
+        if ll_tuple in seen_tuples:
+            continue
+        seen_tuples.add(ll_tuple)
+        identification = lookup_LL_VERSION_IND_metadata(*ll_tuple)
+        if not identification or not identification.get('sdk_versions'):
+            continue
+        sdk_versions = [
+            version for version in identification['sdk_versions']
+            if version.casefold() != 'exact sdk release unknown'
+        ]
+        if not sdk_versions:
+            continue
+        tuple_label = f"{ll_version:02X}:{company_id:04X}:{subversion:04X}"
+        label = (
+            'SDK generation hint'
+            if identification['match_quality'].startswith('vendor/version inference')
+            or all('generation' in version.casefold() for version in sdk_versions)
+            else 'Compatible SDK release(s)'
+        )
+        lines.append(
+            f"{i2}{label}: {', '.join(sdk_versions)} "
+            f"-> From LL_VERSION_IND {tuple_label} "
+            f"({identification['match_quality']})"
+        )
+
+    if lines:
+        if not TME.TME_glob.g_printed_SDKPrint_header:
+            qprint(f"{i1}SDKPrint:")
+            TME.TME_glob.g_printed_SDKPrint_header = True
+        for line in lines:
+            qprint(line)
+        qprint('')
+    else:
+        vprint(f"{i1}SDKPrint:")
+        vprint(f"{i2}No SDKPrint(s) found.")
+
 ########################################
 # DeviceMaker Info
 ########################################

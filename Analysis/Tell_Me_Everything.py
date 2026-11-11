@@ -582,6 +582,7 @@ def main():
         print_ChipMakerPrint(bdaddr, args.bdaddr_type, gatt_value_matches)      # Includes BTIDES export
         print_ModulePrint(bdaddr, args.bdaddr_type, gatt_value_matches)
         print_ModuleMakerPrint(bdaddr, args.bdaddr_type, gatt_value_matches)
+        print_SDKPrint(bdaddr, args.bdaddr_type, gatt_value_matches)
         print_classic_EIR_CID_info(bdaddr)                  # Includes BTIDES export
         print_all_advdata(bdaddr, args.bdaddr_type)         # Includes BTIDES export
         print_GATT_info(bdaddr, args.bdaddr_type)           # Includes BTIDES export

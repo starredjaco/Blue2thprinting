@@ -71,6 +71,7 @@
       "allow_unmapped": true,
       "chip": "Nordic nRF52 family",
       "chip_maker": "Nordic Semiconductor",
+      "sdk": "Nordic nRF5 SDK",
       "confidence": "medium",
       "source": "GATT Software Revision String; Analysis/metadata/Metadata_v2.json Nordic GATTPrints TODO"
     },
@@ -175,13 +176,49 @@
       "module_maker": "Feasycom",
       "confidence": "high",
       "source": "https://www.feasycom.com/datasheet/fsc-bt946.pdf"
+    },
+    {
+      "id": "nordic_nrf5_sdk_build",
+      "uuid": "2a28",
+      "match": "regex",
+      "pattern": "^nRF5_SDK_[0-9.]+_[0-9a-f]+$",
+      "sdk": "Nordic nRF5 SDK",
+      "confidence": "medium",
+      "source": "GATT Software Revision String; version and build hash are observed, not independently verified"
+    },
+    {
+      "id": "beats_mt28_sdk_build",
+      "uuid": "2a26",
+      "match": "regex",
+      "pattern": "^MT28(?:27|31)_SDK_V[0-9.]+\\.ER[0-9]+(?:MT)?$",
+      "sdk": "Unattributed MT28xx SDK build",
+      "confidence": "low",
+      "source": "Observed Beats Firmware Revision String; MT28xx chip and SDK vendor remain unverified"
+    },
+    {
+      "id": "soundcore_release_sdk_build",
+      "uuid": "2a26",
+      "match": "regex",
+      "pattern": "^FW VERSION-[0-9.]+-Release-SDK_[0-9.]+$",
+      "sdk": "Unattributed Soundcore SDK build",
+      "confidence": "low",
+      "source": "Observed Soundcore Space A40 Firmware Revision String; SDK vendor unknown"
+    },
+    {
+      "id": "enzytek_sdk_label",
+      "uuid": "2a26",
+      "match": "exact",
+      "pattern": "SDK 2.0",
+      "sdk": "Unattributed SDK 2.0",
+      "confidence": "low",
+      "source": "Observed Firmware Revision String on Enzytek PROCHBT001; SDK vendor unknown"
     }
   ],
   "research_only": [
     {
       "gatt_value_pattern": "^MT28(27|31)_SDK_",
       "uuid": "2a26",
-      "reason": "Observed on eight Beats BDADDRs. No reliable source establishes these as chip models or identifies a chip maker."
+      "reason": "Observed on eight Beats BDADDRs and captured as an unattributed SDKPrint. No reliable source establishes MT28xx as a chip model or identifies a chip maker."
     },
     {
       "gatt_value": "HS6602M-1212-0229",
