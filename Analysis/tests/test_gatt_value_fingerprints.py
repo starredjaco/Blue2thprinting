@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 ANALYSIS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ANALYSIS_DIR))
 
@@ -36,6 +38,7 @@ def test_rule_matching_respects_uuid_and_address_type(monkeypatch):
     ]
     assert matches[2][0]['chip'] == 'Microchip IS1871'
     assert matches[2][0]['module'] == 'Microchip BM71'
+    assert matches[3][0]['chip'] == 'Realtek RTL8761 family'
     assert matches[3][0]['chip_maker'] == 'Realtek'
     assert matches[3][0]['module_maker'] == 'Feasycom'
 
@@ -69,6 +72,7 @@ def test_sdk_rules_capture_build_strings_without_chip_attribution():
     import_GATT_value_fingerprints()
     rules = {rule['id']: rule for rule in glob.gatt_value_fingerprint_rules}
     examples = [
+        ('nordic_nrf52_sdk_13', '2a28', 'nRF52-SDK13.0'),
         ('nordic_nrf52_sdk_17_0_2', '2a28', 'nRF52-SDK17.02'),
         ('nordic_nrf5_sdk_build', '2a28', 'nRF5_SDK_11.0.0_89a8197'),
         ('beats_mt28_sdk_build', '2a26', 'MT2831_SDK_V1.1.0.ER44'),
@@ -134,6 +138,117 @@ def test_numeric_sdk_candidate_requires_separate_chipmaker_print(monkeypatch):
     metadata.print_SDKPrint('7e:24:11:bc:06:1b', 1, [candidate])
     assert 'possible only' in '\n'.join(output)
     assert 'Firmware may use an unrelated version scheme' in '\n'.join(output)
+
+
+def test_observed_bose_qualcomm_450_collision_stays_suppressed(monkeypatch):
+    """Use the actual observed GATT/LL values through lookup and SDKPrint."""
+    import_GATT_value_fingerprints()
+    address = '7e:24:11:bc:06:1b'
+
+    def observed_rows(query, values):
+        assert values == (address, 1)
+        if 'FROM GATT_characteristics_values' in query:
+            return [
+                ('2a29', 24, b'Bose Corporation'),
+                ('2a24', 26, b'4.0.1'),
+                ('2a26', 32, b'4.5.0'),
+            ]
+        assert 'FROM LL_VERSION_IND' in query
+        return [(8, 0x000A, 11835)]  # Qualcomm controller in the observed record
+
+    output = []
+    monkeypatch.setattr(metadata, 'execute_query', observed_rows)
+    monkeypatch.setattr(metadata, 'lookup_LL_VERSION_IND_metadata', lambda *args: None)
+    monkeypatch.setattr(metadata, 'qprint', output.append)
+    monkeypatch.setattr(metadata, 'vprint', lambda line: None)
+    monkeypatch.setattr(glob, 'g_printed_SDKPrint_header', False)
+
+    matches = metadata.lookup_GATT_value_fingerprints(address, 1)
+    assert [rule['id'] for rule, _, _ in matches] == [
+        'silabs_gecko_sdk_version_candidate'
+    ]
+    metadata.print_SDKPrint(address, 1, matches)
+    assert output == []
+    assert not glob.g_printed_SDKPrint_header
+
+
+@pytest.mark.parametrize(
+    ('other_rule_id', 'address_type', 'oui_name', 'expected'),
+    [
+        ('silabs_blue_gecko', 1, None, True),
+        ('ti_cc2640', 1, None, False),
+        ('feasycom_fsc_bt946', 1, None, False),
+        (None, 0, 'Silicon Laboratories, Inc.', True),
+        (None, 1, 'Silicon Laboratories, Inc.', False),
+    ],
+)
+def test_numeric_sdk_maker_evidence_paths(
+    monkeypatch, other_rule_id, address_type, oui_name, expected
+):
+    """A same-maker GATT print or public OUI qualifies; unrelated evidence does not."""
+    import_GATT_value_fingerprints()
+    rules = {rule['id']: rule for rule in glob.gatt_value_fingerprint_rules}
+    matches = [(rules['silabs_gecko_sdk_version_candidate'], '2a26', '4.5.0')]
+    if other_rule_id:
+        matches.append((rules[other_rule_id], '2a24', rules[other_rule_id]['pattern']))
+    output = []
+    monkeypatch.setattr(metadata, 'ChipMaker_OUI_hash', {
+        'aa:bb:cc': oui_name
+    } if oui_name else {})
+    monkeypatch.setattr(metadata, 'execute_query', lambda query, values: [])
+    monkeypatch.setattr(metadata, 'qprint', output.append)
+    monkeypatch.setattr(metadata, 'vprint', lambda line: None)
+    monkeypatch.setattr(metadata, 'string_yellow_bright', lambda value: value)
+    monkeypatch.setattr(glob, 'g_printed_SDKPrint_header', False)
+
+    metadata.print_SDKPrint('aa:bb:cc:00:00:01', address_type, matches)
+    rendered = '\n'.join(output)
+    assert ('Silicon Labs Gecko SDK' in rendered) is expected
+    assert ('Firmware may use an unrelated version scheme.' in rendered) is expected
+
+
+def test_numeric_sdk_rule_rejects_wrong_uuid_and_pre_component_tags():
+    import_GATT_value_fingerprints()
+    rules = {rule['id']: rule for rule in glob.gatt_value_fingerprint_rules}
+    candidate = rules['silabs_gecko_sdk_version_candidate']
+    assert metadata._gatt_value_matches_rule(candidate, '2a26', '4.5.0')
+    assert not metadata._gatt_value_matches_rule(candidate, '2a28', '4.5.0')
+    assert not metadata._gatt_value_matches_rule(candidate, '2a26', '4.1.3')
+    assert not metadata._gatt_value_matches_rule(candidate, '2a26', '4.5.2')
+
+
+def test_suppressed_numeric_candidate_preserves_independent_ll_sdkprint(monkeypatch):
+    import_GATT_value_fingerprints()
+    rules = {rule['id']: rule for rule in glob.gatt_value_fingerprint_rules}
+    candidate = (rules['silabs_gecko_sdk_version_candidate'], '2a26', '4.5.0')
+    monkeypatch.setattr(metadata, 'execute_query', lambda query, values: [(8, 0x0059, 0x0098)])
+    monkeypatch.setattr(metadata, 'lookup_LL_VERSION_IND_metadata', lambda *args: {
+        'sdk_versions': ['nRF5 SDK 13.0.0', 'nRF5 SDK 13.1.0'],
+        'match_quality': 'exact LL_VERSION_IND metadata match',
+    })
+    output = []
+    monkeypatch.setattr(metadata, 'qprint', output.append)
+    monkeypatch.setattr(metadata, 'string_yellow_bright', lambda value: value)
+    monkeypatch.setattr(glob, 'g_printed_SDKPrint_header', False)
+
+    metadata.print_SDKPrint('aa:bb:cc:00:00:01', 1, [candidate])
+    rendered = '\n'.join(output)
+    assert 'Compatible SDK release(s): nRF5 SDK 13.0.0, nRF5 SDK 13.1.0' in rendered
+    assert 'Silicon Labs Gecko SDK' not in rendered
+
+
+def test_explicit_sdk_archive_name_does_not_need_chipmaker_print(monkeypatch):
+    import_GATT_value_fingerprints()
+    rules = {rule['id']: rule for rule in glob.gatt_value_fingerprint_rules}
+    match = (rules['nordic_nrf5_sdk_build'], '2a28', 'nRF5_SDK_11.0.0_89a8197')
+    output = []
+    monkeypatch.setattr(metadata, 'execute_query', lambda query, values: [])
+    monkeypatch.setattr(metadata, 'qprint', output.append)
+    monkeypatch.setattr(metadata, 'string_yellow_bright', lambda value: value)
+    monkeypatch.setattr(glob, 'g_printed_SDKPrint_header', False)
+
+    metadata.print_SDKPrint('c6:12:ac:5d:cd:d4', 1, [match])
+    assert 'Nordic nRF5 SDK 11.0.0 (archive 89a8197)' in '\n'.join(output)
 
 
 def test_sdkprint_omits_unknown_ll_release(monkeypatch):
