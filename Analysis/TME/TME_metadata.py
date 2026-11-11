@@ -901,19 +901,36 @@ def print_ModulePrint(bdaddr, bdaddr_random, gatt_value_matches=None):
         vprint(f"{i2}No ModulePrint(s) found.")
 
 
+def _has_chipmaker_evidence_for_sdk_rule(rule, bdaddr, bdaddr_random,
+                                         gatt_value_matches, ll_tuples):
+    """Require a separate ChipMakerPrint source for numeric SDK coincidences."""
+    maker = rule.get('requires_chip_maker')
+    if not maker:
+        return True
+    if any(company_id == rule['chip_maker_cid'] for _, company_id, _ in ll_tuples):
+        return True
+    if any(
+        other_rule is not rule and other_rule.get('chip_maker') == maker
+        for other_rule, _, _ in gatt_value_matches
+    ):
+        return True
+    # ChipMakerPrint uses the OUI only for public or Classic addresses.
+    has_public_oui = bdaddr_random == 0 or (
+        bdaddr_random is None and (
+            is_bdaddr_classic(bdaddr) or not is_bdaddr_le_and_random(bdaddr)
+        )
+    )
+    if has_public_oui:
+        oui_maker = ChipMaker_OUI_hash.get(bdaddr.lower()[:8])
+        if oui_maker and oui_maker.casefold().startswith(maker.casefold()):
+            return True
+    return False
+
+
 def print_SDKPrint(bdaddr, bdaddr_random, gatt_value_matches=None):
-    """Show observed GATT SDK labels and compatible LL SDK releases."""
+    """Show GATT SDK labels, guarded version hints, and LL SDK releases."""
     if gatt_value_matches is None:
         gatt_value_matches = lookup_GATT_value_fingerprints(bdaddr, bdaddr_random)
-
-    lines = []
-    for rule, uuid, value in gatt_value_matches:
-        if 'sdk' in rule:
-            source = f"GATT 0x{_gatt_uuid16(uuid)}" if uuid else 'unmapped GATT value'
-            lines.append(
-                f"{i2}{string_yellow_bright(rule['sdk'])} [{rule['confidence']}] "
-                f"-> Observed build string {value!r} ({source})"
-            )
 
     if bdaddr_random is None:
         query = 'SELECT ll_version, device_BT_CID, ll_sub_version FROM LL_VERSION_IND WHERE bdaddr = %s'
@@ -924,8 +941,29 @@ def print_SDKPrint(bdaddr, bdaddr_random, gatt_value_matches=None):
             'WHERE bdaddr = %s AND bdaddr_random = %s'
         )
         values = (bdaddr, bdaddr_random)
+    ll_tuples = execute_query(query, values)
+    lines = []
+    for rule, uuid, value in gatt_value_matches:
+        if 'sdk' not in rule or not _has_chipmaker_evidence_for_sdk_rule(
+            rule, bdaddr, bdaddr_random, gatt_value_matches, ll_tuples
+        ):
+            continue
+        source = f"GATT 0x{_gatt_uuid16(uuid)}" if uuid else 'unmapped GATT value'
+        if rule.get('requires_chip_maker'):
+            lines.append(
+                f"{i2}{string_yellow_bright(rule['sdk'])} [low; possible only] "
+                f"-> GATT firmware version {value!r} matches an SDK release number "
+                f"({source}); separate {rule['requires_chip_maker']} ChipMakerPrint. "
+                "Firmware may use an unrelated version scheme."
+            )
+        else:
+            lines.append(
+                f"{i2}{string_yellow_bright(rule['sdk'])} [{rule['confidence']}] "
+                f"-> Observed build string {value!r} ({source})"
+            )
+
     seen_tuples = set()
-    for ll_version, company_id, subversion in execute_query(query, values):
+    for ll_version, company_id, subversion in ll_tuples:
         ll_tuple = (ll_version, company_id, subversion)
         if ll_tuple in seen_tuples:
             continue

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "GATT value evidence for possible chip, chip-maker, module, and module-maker prints. UUIDs are characteristic UUIDs; patterns match decoded UTF-8 values after trailing NUL removal.",
+  "description": "GATT value evidence for possible chip, chip-maker, module, module-maker, and SDK prints. UUIDs are characteristic UUIDs; patterns match decoded UTF-8 values after trailing NUL removal. Numeric SDK version coincidences require an independent ChipMakerPrint.",
   "rules": [
     {
       "id": "ti_cc2640",
@@ -64,16 +64,28 @@
       "source": "B-HIVEMIND Datasheets_and_Documentation/Nordic/ChipToDatasheet.md; observed BDADDRs look like test placeholders"
     },
     {
-      "id": "nordic_nrf52_sdk",
+      "id": "nordic_nrf52_sdk_13",
       "uuid": "2a28",
-      "match": "regex",
-      "pattern": "^nRF52-SDK[0-9.]+$",
+      "match": "exact",
+      "pattern": "nRF52-SDK13.0",
       "allow_unmapped": true,
       "chip": "Nordic nRF52 family",
       "chip_maker": "Nordic Semiconductor",
-      "sdk": "Nordic nRF5 SDK",
+      "sdk": "Nordic nRF5 SDK 13.0.x (device-reported shorthand)",
       "confidence": "medium",
-      "source": "GATT Software Revision String; Analysis/metadata/Metadata_v2.json Nordic GATTPrints TODO"
+      "source": "GATT Software Revision String; B-HIVEMIND SDKs/Nordic/nRF5_SDK/nRF5_SDK_v13.x.x; patch level not encoded"
+    },
+    {
+      "id": "nordic_nrf52_sdk_17_0_2",
+      "uuid": "2a28",
+      "match": "exact",
+      "pattern": "nRF52-SDK17.02",
+      "allow_unmapped": true,
+      "chip": "Nordic nRF52 family",
+      "chip_maker": "Nordic Semiconductor",
+      "sdk": "Nordic nRF5 SDK 17.0.2 (device-reported shorthand)",
+      "confidence": "medium",
+      "source": "GATT Software Revision String; B-HIVEMIND SDKs/Nordic/nRF5_SDK/nRF5_SDK_v17.x.x/nRF5_SDK_17.0.2_d674dde.zip"
     },
     {
       "id": "nordic_nrf52xx_model",
@@ -164,8 +176,10 @@
       "pattern": "FSC-BT836",
       "module": "Feasycom FSC-BT836",
       "module_maker": "Feasycom",
+      "chip": "Realtek RTL8761 family",
+      "chip_maker": "Realtek",
       "confidence": "high",
-      "source": "https://www.feasycom.com/datasheet/fsc-bt836.pdf"
+      "source": "https://www.feasycom.net/Content/upload/2019217626/PDF/FSC-BT836-SPEC-V1.5.pdf; specification names RTL8761 and observed LMP_VERSION_RES Company ID 0x005D independently confirms Realtek; exact chip suffix unknown"
     },
     {
       "id": "feasycom_fsc_bt946",
@@ -180,11 +194,22 @@
     {
       "id": "nordic_nrf5_sdk_build",
       "uuid": "2a28",
+      "match": "exact",
+      "pattern": "nRF5_SDK_11.0.0_89a8197",
+      "sdk": "Nordic nRF5 SDK 11.0.0 (archive 89a8197)",
+      "confidence": "high",
+      "source": "GATT Software Revision String exactly matches B-HIVEMIND SDKs/Nordic/nRF5_SDK/nRF5_SDK_v11.x.x/nRF5_SDK_11.0.0_89a8197.zip"
+    },
+    {
+      "id": "silabs_gecko_sdk_version_candidate",
+      "uuid": "2a26",
       "match": "regex",
-      "pattern": "^nRF5_SDK_[0-9.]+_[0-9a-f]+$",
-      "sdk": "Nordic nRF5 SDK",
-      "confidence": "medium",
-      "source": "GATT Software Revision String; version and build hash are observed, not independently verified"
+      "pattern": "^4\\.(?:2\\.[0-7]|3\\.[0-3]|4\\.[0-6]|5\\.[01])$",
+      "sdk": "Silicon Labs Gecko SDK release with matching version number",
+      "confidence": "low",
+      "requires_chip_maker": "Silicon Laboratories",
+      "chip_maker_cid": 767,
+      "source": "B-HIVEMIND SDKs/Silicon-Labs/gecko_sdk.official tags v4.2.0-v4.5.1; app/bluetooth/common/gatt_service_device_information/sl_gatt_service_device_information.c writes SL_GSDK_VERSION_STR to Firmware Revision String; matching version alone is ambiguous"
     },
     {
       "id": "beats_mt28_sdk_build",
@@ -209,9 +234,10 @@
       "uuid": "2a26",
       "match": "exact",
       "pattern": "SDK 2.0",
+      "allow_unmapped": true,
       "sdk": "Unattributed SDK 2.0",
       "confidence": "low",
-      "source": "Observed Firmware Revision String on Enzytek PROCHBT001; SDK vendor unknown"
+      "source": "Observed Firmware Revision String on Enzytek PROCHBT001 and two unmapped GATT values; SDK vendor unknown"
     }
   ],
   "research_only": [
