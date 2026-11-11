@@ -64,7 +64,7 @@ echo "Using cargo: $CARGO_BIN"
 
 python3 -m venv ./venv
 source ./venv/bin/activate
-pip install jsonschema==4.23 mysql-connector-python pyyaml requests google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client colorama
+pip install jsonschema==4.23 mysql-connector-python pyyaml requests google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client colorama ijson
 
 # Using my branch until all of my and Antonio's changes are merged in
 git clone https://github.com/XenoKovah/scapy.git
