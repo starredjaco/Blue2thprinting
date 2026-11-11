@@ -47,6 +47,8 @@ def main():
             help="Use long range (coded) PHY for primary advertising")
     aparse.add_argument("-q", "--quiet", action="store_true",
             help="Don't display empty packets")
+    aparse.add_argument("--hide-adv-ext-ind", action="store_true",
+            help="Don't display ADV_EXT_IND packets")
     aparse.add_argument("-Q", "--preload", default=None, help="Preload expected encrypted "
             "connection parameter changes")
     aparse.add_argument("-n", "--nophychange", action="store_true",
@@ -138,7 +140,7 @@ def main():
     while True:
         try:
             msg = hw.recv_and_decode()
-            print_message(msg, args.quiet, args.decode)
+            print_message(msg, args.quiet, args.decode, args.hide_adv_ext_ind)
         except SourceDone:
             break
         except KeyboardInterrupt:
@@ -146,23 +148,26 @@ def main():
             sys.stderr.write("\r")
             break
 
-def print_message(msg, quiet, decode_ad):
+def print_message(msg, quiet, decode_ad, hide_adv_ext_ind=False):
     if isinstance(msg, PacketMessage):
-        print_packet(msg, quiet, decode_ad)
+        print_packet(msg, quiet, decode_ad, hide_adv_ext_ind)
     elif isinstance(msg, DebugMessage) or isinstance(msg, StateMessage) or \
             isinstance(msg, MeasurementMessage):
         print(msg, end='\n\n')
 
-def print_packet(dpkt, quiet, decode_ad):
-    if isinstance(dpkt, (AdvaMessage, AdvDirectIndMessage, ScanRspMessage,
-                         AdvExtIndMessage)):
+def print_packet(dpkt, quiet, decode_ad, hide_adv_ext_ind=False):
+    hide_packet = hide_adv_ext_ind and type(dpkt) is AdvExtIndMessage
+
+    if not hide_packet and isinstance(dpkt, (AdvaMessage, AdvDirectIndMessage,
+                                             ScanRspMessage, AdvExtIndMessage)):
             print(dpkt.str_header())
             print(dpkt.str_decode())
             if decode_ad:
                 for ad in decode_adv_data(dpkt.adv_data):
                     print(ad)
             print(dpkt.hexdump(), end='\n\n')
-    elif not (quiet and isinstance(dpkt, DataMessage) and dpkt.data_length == 0):
+    elif not hide_packet and not (quiet and isinstance(dpkt, DataMessage) and
+                                  dpkt.data_length == 0):
         print(dpkt, end='\n\n')
 
     # Record the packet if PCAP writing is enabled

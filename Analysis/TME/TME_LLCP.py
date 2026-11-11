@@ -6,10 +6,129 @@
 from TME.TME_helpers import *
 from TME.TME_BTIDES_LLCP import *
 from TME.TME_glob import i1, i2, i3, i4, i5 # Required for terser usage within print statements
+from copy import deepcopy
+from TME.TME_version_metadata import lookup_company_subversion_metadata
 
 ########################################
 # LLCP Info
 ########################################
+
+def _metadata_int(value):
+    """Accept JSON integer values or hexadecimal strings such as ``0x0059``."""
+    if isinstance(value, int):
+        return value
+    return int(value, 0)
+
+
+def lookup_LL_VERSION_IND_metadata(ll_version, company_id, subversion):
+    """Return the best known controller identification for an LL tuple.
+
+    Lookup priority is exact tuple, vendor-specific masked pattern, then a
+    conservative vendor/version hint. A fresh dictionary is returned so a
+    caller cannot mutate the globally loaded metadata.
+    """
+    metadata = TME.TME_glob.ll_version_ind_metadata
+    if not metadata:
+        return None
+
+    tuple_key = f"{ll_version:02X}:{company_id:04X}:{subversion:04X}"
+    exact = metadata.get('exact_matches', {}).get(tuple_key)
+    if exact is not None:
+        result = deepcopy(exact)
+        broad = lookup_company_subversion_metadata(
+            metadata, company_id, subversion
+        )
+        if broad and broad.get('linux_firmware_history'):
+            result['linux_firmware_history'] = broad['linux_firmware_history']
+        result.setdefault('match_quality', 'exact LL_VERSION_IND metadata match')
+        return result
+
+    result = lookup_company_subversion_metadata(
+        metadata, company_id, subversion
+    )
+    if result is not None:
+        result.setdefault('match_quality', (
+            'company/sub-version chip match; VersNr not constrained'
+        ))
+        return result
+
+    for pattern in metadata.get('pattern_matches', []):
+        if company_id != _metadata_int(pattern['company_id']):
+            continue
+
+        family_mask = _metadata_int(pattern['subversion_family_mask'])
+        build_mask = _metadata_int(pattern['subversion_build_mask'])
+        family_key = f"0x{subversion & family_mask:04X}"
+        build_key = f"0x{subversion & build_mask:03X}"
+        family = pattern.get('families', {}).get(family_key)
+        build = pattern.get('builds', {}).get(build_key)
+        if family is None or build is None:
+            continue
+        if ll_version != _metadata_int(build['ll_version']):
+            continue
+        build_allowlist = pattern.get(
+            'family_build_allowlists', {}
+        ).get(family_key)
+        if build_allowlist is not None and build_key not in build_allowlist:
+            continue
+
+        controller = pattern['controller']
+        result = {
+            'vendor': pattern.get('vendor'),
+            'software': [
+                f"{controller} ({family['name']}, build {build_key})"
+            ],
+            'chips': list(family.get('chips', [])),
+            'sdk_versions': list(build.get('sdk_versions', [])),
+            'notes': (
+                list(pattern.get('notes', []))
+                + list(family.get('notes', []))
+                + list(build.get('notes', []))
+            ),
+            'match_quality': pattern.get(
+                'match_quality',
+                'vendor-specific LL sub-version pattern match',
+            ),
+        }
+        return result
+
+    for hint in metadata.get('vendor_version_hints', []):
+        if company_id != _metadata_int(hint['company_id']):
+            continue
+        minimum = _metadata_int(hint.get('ll_version_min', 0))
+        maximum = _metadata_int(hint.get('ll_version_max', 0xFF))
+        if minimum <= ll_version <= maximum:
+            result = dict(hint)
+            result.pop('company_id', None)
+            result.pop('ll_version_min', None)
+            result.pop('ll_version_max', None)
+            result['match_quality'] = 'vendor/version inference; exact FWID unknown'
+            return result
+
+    return None
+
+
+def print_LL_VERSION_IND_metadata(ll_version, company_id, subversion):
+    identification = lookup_LL_VERSION_IND_metadata(
+        ll_version, company_id, subversion
+    )
+    if identification is None:
+        return
+
+    qprint(f"{i3}Controller identification ({identification['match_quality']}):")
+    if identification.get('software'):
+        qprint(f"{i4}Possible SoftDevice/controller: {', '.join(identification['software'])}")
+    if identification.get('chips'):
+        qprint(f"{i4}Possible chip(s): {', '.join(identification['chips'])}")
+    if identification.get('firmware_state'):
+        firmware_state = identification['firmware_state']
+        if identification.get('patch_version'):
+            firmware_state += f" (patch version {identification['patch_version']})"
+        qprint(f"{i4}Controller firmware state: {firmware_state}")
+    if identification.get('sdk_versions'):
+        qprint(f"{i4}Possible SDK version(s): {', '.join(identification['sdk_versions'])}")
+    for note in identification.get('notes', []):
+        qprint(f"{i4}Note: {note}")
 
 def phy_prefs_to_string(number):
     str = ""
@@ -124,6 +243,7 @@ def print_LLCP_info(bdaddr, bdaddr_random):
         qprint(f"{i3}BT Version ({ll_version}): {get_bt_spec_version_numbers_to_names(ll_version)}")
         qprint(f"{i3}LL Sub-version: 0x{ll_sub_version:04x}")
         qprint(f"{i3}Company ID: {device_BT_CID} ({BT_CID_to_company_name(device_BT_CID)})")
+        print_LL_VERSION_IND_metadata(ll_version, device_BT_CID, ll_sub_version)
 
     for bdaddr_random, opcode, features in features_result:
         qprint(f"{i2}LLCP opcode 0x{opcode:02X}: {ll_ctrl_pdu_opcodes_to_strings[opcode]}")

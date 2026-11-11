@@ -11,7 +11,7 @@ from struct import pack, unpack
 
 from sniffle.sniffle_hw import SniffleHW, BLE_ADV_AA, PacketMessage, DebugMessage, StateMessage, MeasurementMessage
 from sniffle.packet_decoder import DPacketMessage, ConnectIndMessage, LlDataContMessage
-from sniffle.relay_protocol import connect_relay, MessageType
+from sniffle.relay_protocol import connect_relay, MessageType, ErrorCode
 
 # global variable to access hardware
 hw = None
@@ -63,6 +63,9 @@ def main():
     # obtain the target's advertisement and scan response from the master
     print("Waiting for advertisement and scan response...")
     mtype, advert_body = conn.recv_msg()
+    if mtype == MessageType.ERROR and advert_body == bytes([ErrorCode.INVALID_ADV.value]):
+        print("Relay master rejected the target's advertisement type.")
+        return
     if mtype != MessageType.ADVERT:
         raise ValueError("Got wrong message type %s" % mtype.name)
     mtype, scan_rsp_body = conn.recv_msg()

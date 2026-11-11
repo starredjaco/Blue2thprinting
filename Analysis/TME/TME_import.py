@@ -36,6 +36,42 @@ def import_metadata_v2():
         TME.TME_glob.metadata_v2 = json.load(f)
 
 
+def import_LL_VERSION_IND_metadata():
+    """Load controller fingerprints keyed by LL_VERSION_IND values.
+
+    Resolve the file relative to this module instead of the process working
+    directory. Tell_Me_Everything historically runs from Analysis/, but this
+    metadata is also useful to unit tests and other callers importing TME.
+    """
+    json_file = os.path.normpath(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        '..', 'metadata', 'LL_VERSION_IND_metadata.json',
+    ))
+    TME.TME_glob.ll_version_ind_metadata = _load_controller_metadata(json_file)
+
+
+def import_LMP_VERSION_metadata():
+    """Load Bluetooth Classic controller fingerprints from JSON metadata."""
+    json_file = os.path.normpath(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        '..', 'metadata', 'LMP_VERSION_metadata.json',
+    ))
+    TME.TME_glob.lmp_version_metadata = _load_controller_metadata(json_file)
+
+
+def _load_controller_metadata(json_file):
+    """Load a controller metadata file and its optional shared data files."""
+    with open(json_file, 'r') as f:
+        metadata = json.load(f)
+
+    history_file = metadata.get('realtek_linux_firmware_history_file')
+    if history_file:
+        history_path = os.path.join(os.path.dirname(json_file), history_file)
+        with open(history_path, 'r') as f:
+            metadata['realtek_linux_firmware_history'] = json.load(f)
+    return metadata
+
+
 # Option to store private metadata in
 # this file. It will be consulted, but
 # doesn't need to be checked in

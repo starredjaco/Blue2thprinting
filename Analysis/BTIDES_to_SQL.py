@@ -1062,12 +1062,19 @@ def has_known_HCI_entry(event_code, hci_entry):
 
 def parse_HCIArray(entry):
     if("HCIArray" not in entry.keys() or entry["HCIArray"] == None):
-        return # Entry not valid for this type
+        return 0 # Entry not valid for this type
 
     bdaddr, bdaddr_rand = get_bdaddr_peripheral(entry)
+    skipped_extended_reports = 0
     for hci_entry in entry["HCIArray"]:
         if(has_known_HCI_entry(event_code_HCI_Remote_Name_Request_Complete, hci_entry)):
             import_HCI_Remote_Name_Request_Complete(bdaddr, hci_entry)
+        elif (hci_entry.get("event_code") == 0x3e
+              and hci_entry.get("subevent_code") == 0x0d):
+            # BTIDES retains the raw extended advertising report. There is no
+            # SQL table for report-level HCI metadata yet.
+            skipped_extended_reports += 1
+    return skipped_extended_reports
 
 
 ###################################
@@ -1676,6 +1683,7 @@ def btides_to_sql(args):
 
         total = len(TME.TME_glob.BTIDES_JSON)
         count = 0;
+        skipped_extended_reports = 0
         for entry in TME.TME_glob.BTIDES_JSON:
             if not skip_schema_validation:
                 # Sanity check every entry against the Schema's SingleBDADDR (this way we don't have to validate all up front)
@@ -1697,7 +1705,7 @@ def btides_to_sql(args):
 
             parse_LMPArray(entry)
 
-            parse_HCIArray(entry)
+            skipped_extended_reports += parse_HCIArray(entry)
 
             parse_L2CAPArray(entry)
 
@@ -1722,6 +1730,14 @@ def btides_to_sql(args):
         # O(distinct_bdaddrs / chunk_size) SELECTs + O(total / chunk_size)
         # INSERTs. Semantics match parse_GPSArray exactly.
         parse_all_GPSArrays_batched()
+
+        if skipped_extended_reports:
+            print(
+                f"Warning: skipped {skipped_extended_reports} HCI LE Extended "
+                "Advertising Reports during SQL import; their raw data remains "
+                "in BTIDES, but there is no SQL table for HCI reports yet.",
+                file=sys.stderr,
+            )
 
         qprint(f"New db records inserted: {TME.TME_glob.insert_count}")
         qprint(f"Duplicate db records ignored: {TME.TME_glob.duplicate_count}")

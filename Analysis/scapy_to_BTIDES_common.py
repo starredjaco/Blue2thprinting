@@ -147,7 +147,10 @@ def get_packet_direction(packet):
 ######################################################################
 
 # This is the main function which converts from Scapy data format to BTIDES
-def export_AdvData(bdaddr, bdaddr_random, adv_type, entry):
+# An HCI advertising report can contain data from several LL PDUs. Allow its
+# caller to collect parsed AD structures without assigning a single PDU type.
+def export_AdvData(bdaddr, bdaddr_random, adv_type, entry,
+                   BTIDES_export_AdvData=BTIDES_export_AdvData):
     #entry.show()
 
     # type 1

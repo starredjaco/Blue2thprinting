@@ -246,7 +246,7 @@ class DataMessage(DPacketMessage):
         return dtstr
 
     def str_header(self):
-        return super().str_header() + "  Event: %d" % self.event
+        return super().str_header() + "  AA: 0x%08X  Event: %d" % (self.aa, self.event)
 
     def _str_decode(self):
         return self.str_datatype()

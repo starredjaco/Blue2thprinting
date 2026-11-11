@@ -17,11 +17,13 @@ activate_venv()
 
 import argparse
 import asyncio
+import csv
 import datetime
 import subprocess
 import threading
 import time
 import glob
+import unicodedata
 from queue import Queue
 from subprocess import TimeoutExpired
 import traceback
@@ -169,6 +171,16 @@ ble_deprioritized_bdaddrs = {}
 ble_deprioritized_bdaddrs_lock = threading.Lock()
 btc_deprioritized_bdaddrs = {}
 btc_deprioritized_bdaddrs_lock = threading.Lock()
+
+# Devices whose exact structural GATT map is already well covered. Their
+# first Better_Getter pass commits handle/UUID data and exits before ATT_READ;
+# they move here until normal discovery/value work has drained. Promotion
+# records the address in gatt_force_read_bdaddrs so the reconnect cannot defer
+# itself a second time.
+ble_gatt_value_deprioritized_bdaddrs = {}
+ble_gatt_value_deprioritized_bdaddrs_lock = threading.Lock()
+gatt_force_read_bdaddrs = set()
+GATT_VALUES_DEFERRED_EXIT_CODE = 0x2D
 
 gatt_success_bdaddrs = {}
 gatt_success_bdaddrs_lock = threading.Lock()
@@ -512,7 +524,16 @@ def all_2thprints_done(type, bdaddr):
 
 class ApplicationThread(threading.Thread):
     global serial_port_status
-    def __init__(self, process, bdaddr, info_type, timeout, launch_cmd="", bg_dongle_path=None):
+    def __init__(
+        self,
+        process,
+        bdaddr,
+        info_type,
+        timeout,
+        launch_cmd="",
+        bg_dongle_path=None,
+        gatt_device_state=None,
+    ):
         threading.Thread.__init__(self)
         self.process = process
         self.timeout = timeout
@@ -523,6 +544,7 @@ class ApplicationThread(threading.Thread):
         # When set, the GATT path returns this dongle to bg_dongle_queue on exit so
         # another BLE bdaddr can claim it next.
         self.bg_dongle_path = bg_dongle_path
+        self.gatt_device_state = gatt_device_state
         # Wall-clock at thread construction. _run_inner uses elapsed time vs this
         # to detect "Better_Getter exited almost instantly with non-zero rc" — the
         # cp210x EIO-on-serial-open signature — and flag the dongle for usbreset
@@ -611,6 +633,9 @@ class ApplicationThread(threading.Thread):
                            bg_dongle_consecutive_failures[self.bg_dongle_path] = 0
                        with gatt_success_bdaddrs_lock:
                            gatt_success_bdaddrs[self.bdaddr] = 1
+                           with ble_gatt_value_deprioritized_bdaddrs_lock:
+                               ble_gatt_value_deprioritized_bdaddrs.pop(self.bdaddr, None)
+                               gatt_force_read_bdaddrs.discard(self.bdaddr)
                            # Should only remove from ble_bdaddrs if all BLE-type prints are done
                            if(print_finished_bdaddrs): print(f"Successful GATTPrinting of {self.bdaddr}!")
                            if(all_2thprints_done("BLE", self.bdaddr)):
@@ -642,6 +667,40 @@ class ApplicationThread(threading.Thread):
                                if(print_finished_bdaddrs): print(f"All 2thprints collected! Deleting {self.bdaddr} from btc_bdaddrs!")
                     elif(self.info_type == "Sniffle"):
                        external_log_write(sdpprint_log_path, f"SNIFFLE LAUNCH SUCCESS: {self.launch_cmd} {datetime.datetime.now()}")
+                elif (
+                    self.info_type == "GATT"
+                    and retCode == GATT_VALUES_DEFERRED_EXIT_CODE
+                ):
+                    # Structural discovery succeeded and was written out, but
+                    # this exact map is already value-covered. Do not count the
+                    # intentional exit as a dongle failure. Remove it from the
+                    # normal queue and preserve enough state for a later forced
+                    # reconnect.
+                    external_log_write(
+                        bgprint_log_path,
+                        f"BETTERGETTER VALUES DEFERRED FOR: "
+                        f"{self.bdaddr} {datetime.datetime.now()}",
+                    )
+                    if self.bg_dongle_path is not None:
+                        bg_dongle_consecutive_failures[self.bg_dongle_path] = 0
+                    state = self.gatt_device_state
+                    with ble_bdaddrs_lock:
+                        state = ble_bdaddrs.pop(self.bdaddr, state)
+                        with ble_gatt_value_deprioritized_bdaddrs_lock:
+                            if state is not None:
+                                ble_gatt_value_deprioritized_bdaddrs[self.bdaddr] = state
+                            gatt_force_read_bdaddrs.discard(self.bdaddr)
+                    # The structural pass is successful staging work, not a
+                    # failed retry. Give the value phase its normal retry budget.
+                    device_connect_attempts[self.bdaddr] = 0
+                    device_total_attempts[self.bdaddr] = max(
+                        0, device_total_attempts.get(self.bdaddr, 1) - 1
+                    )
+                    if print_finished_bdaddrs:
+                        print(
+                            f"Saved GATT handle/UUID map for {self.bdaddr}; "
+                            "deferred readable values"
+                        )
                 else:
                     if(self.info_type == "GATT"):
                        external_log_write(bgprint_log_path, f"BETTERGETTER FAILURE 0x{retCode:02x} FOR: {self.bdaddr} {datetime.datetime.now()}")
@@ -974,6 +1033,292 @@ else:
 
 APPLE_COMPANY_ID = 0x004C  # Apple devices get deprioritized; we already have plenty of data on them.
 
+# ----------------------------------------------------------------------------
+# Adv-signature-based deprioritization
+# ----------------------------------------------------------------------------
+# In addition to the legacy "any device whose first MSD is Apple" rule, we
+# also deprioritize devices whose entire AD signature matches one for which
+# we already have full GATT data in the local bt2 database. The signature is
+# the set of stable (non-device-unique) AD fields we observed across our
+# pcap corpus — see Analysis/build_adv_signature_priority.py for how this
+# CSV is generated and the SIGNATURE_DESIGN doc-comment in that file for the
+# field definition.
+#
+# CSV format (one row per signature, '#'-prefixed lines are comments):
+#   <signature>,<deprioritized 0|1>,<bdaddr_count>
+# We only retain the signatures with deprioritized==1.
+
+ADV_SIGNATURE_CSV_PATH = str(REPO_ROOT / "Analysis/adv_signature_priority.csv")
+
+# Parsed deprioritized "anchor" signatures. Each entry is a tuple of
+#   (raw_signature_string, parsed_dict)
+# where parsed_dict maps key -> frozenset(values), e.g. for the row
+#   mfr=004c
+# we store ("mfr=004c", {"mfr": frozenset({"004c"})}). At lookup time we
+# do *subset* matching: a device's full signature matches the entry iff
+# every key=value pair in the entry is also present in the device's sig.
+# That way the CSV needs to carry only the *minimal* deprio signatures —
+# any superset device sig is automatically caught. See SIGNATURE_DESIGN
+# in Analysis/build_adv_signature_priority.py for the full rationale.
+_deprioritized_adv_signatures = []  # list[tuple[str, dict[str, frozenset]]]
+
+# BlueZ Device1 props arrive incrementally (an InterfacesAdded snapshot, then
+# PropertiesChanged for each later update). To compute the full signature on
+# every update we cache the relevant AD-derived properties per bdaddr and
+# merge into them as PropertiesChanged events arrive. The cache holds only
+# the keys that contribute to signatures.
+_SIG_RELEVANT_PROPS = (
+    "AdvertisingFlags", "UUIDs", "ServiceData", "ManufacturerData",
+    "Appearance", "TxPower",
+)
+_device_sig_props = {}  # {bdaddr: {prop_name: unwrapped_value}}
+_device_sig_props_lock = threading.Lock()
+
+# Suffix common to all UUID16/UUID32 forms of the BT base UUID. Anything
+# ending in this suffix is a 16- or 32-bit assigned-number UUID expanded
+# to UUID128 form by BlueZ; everything else is a true 128-bit custom UUID.
+_BT_BASE_UUID_SUFFIX = "-0000-1000-8000-00805f9b34fb"
+
+
+def _parse_signature_string(s):
+    """'k1=v1+v2|k2=v3' -> {'k1': frozenset({'v1','v2'}), 'k2': frozenset({'v3'})}.
+
+    Mirror of build_adv_signature_priority.parse_signature(); kept here as
+    a duplicate to avoid an import dependency on the Analysis tree at
+    runtime (this file ships standalone on the capture host).
+    """
+    out = {}
+    if not s:
+        return out
+    for part in s.split("|"):
+        k, sep, v = part.partition("=")
+        if not sep:
+            continue
+        out[k] = frozenset(v.split("+")) if v else frozenset()
+    return out
+
+
+def _load_deprioritized_adv_signatures(csv_path):
+    """Load the deprioritized-only subset of the signature CSV into the
+    module-level list, parsing each entry up-front for fast subset matching.
+    Safe to call before workers start."""
+    global _deprioritized_adv_signatures
+    if not os.path.exists(csv_path):
+        print(f"WARN: adv signature CSV not found at {csv_path} — "
+              f"signature-based deprioritization disabled. "
+              f"Run Analysis/build_adv_signature_priority.py to create it.")
+        return
+    deprio = []
+    total = 0
+    try:
+        with open(csv_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                # csv-without-csv: signatures don't contain commas (we use '+'
+                # for list separators inside signatures specifically so the
+                # outer CSV stays simple).
+                parts = line.split(",")
+                if len(parts) < 2:
+                    continue
+                sig, flag = parts[0], parts[1]
+                total += 1
+                try:
+                    if int(flag):
+                        deprio.append((sig, _parse_signature_string(sig)))
+                except ValueError:
+                    continue
+    except OSError as e:
+        print(f"WARN: failed to read {csv_path}: {e}")
+        return
+    _deprioritized_adv_signatures = deprio
+    print(f"Loaded {len(deprio)} deprioritized signatures (of {total} total) "
+          f"from {csv_path}")
+
+
+_load_deprioritized_adv_signatures(ADV_SIGNATURE_CSV_PATH)
+
+# ----------------------------------------------------------------------------
+# Name-signature-based deprioritization
+# ----------------------------------------------------------------------------
+# Analysis/build_name_signature_priority.py derives this set from names in the
+# local bt2 database. A name is included when any distinct BDADDR observed with
+# that same normalized name already has GATT characteristic-value data.
+#
+# CSV format:
+#   <hex UTF-8 normalized name>,<deprioritized 0|1>,<bdaddr_count>
+NAME_SIGNATURE_CSV_PATH = str(REPO_ROOT / "Analysis/name_signature_priority.csv")
+_deprioritized_name_signatures = set()
+
+
+def _normalize_device_name(name):
+    """Mirror build_name_signature_priority.normalize_name()."""
+    if not isinstance(name, str):
+        return ""
+    normalized = unicodedata.normalize("NFKC", name)
+    start = 0
+    end = len(normalized)
+    while start < end and (normalized[start].isspace() or normalized[start] == "\x00"):
+        start += 1
+    while end > start and (normalized[end - 1].isspace() or normalized[end - 1] == "\x00"):
+        end -= 1
+    return normalized[start:end]
+
+
+def _name_signature(name):
+    normalized = _normalize_device_name(name)
+    return normalized.encode("utf-8").hex() if normalized else ""
+
+
+def _load_deprioritized_name_signatures(csv_path):
+    """Load valid deprioritized name signatures, ignoring novel/comment rows."""
+    global _deprioritized_name_signatures
+    if not os.path.exists(csv_path):
+        print(f"WARN: name signature CSV not found at {csv_path} — "
+              f"name-based deprioritization disabled. "
+              f"Run Analysis/build_name_signature_priority.py to create it.")
+        return
+    deprio = set()
+    total = 0
+    try:
+        with open(csv_path, "r", newline="", encoding="utf-8") as f:
+            rows = csv.reader(line for line in f if not line.lstrip().startswith("#"))
+            for row in rows:
+                if len(row) < 2:
+                    continue
+                signature = row[0].strip().lower()
+                total += 1
+                try:
+                    enabled = int(row[1])
+                    decoded = bytes.fromhex(signature)
+                    decoded.decode("utf-8")
+                except (ValueError, UnicodeDecodeError):
+                    continue
+                if enabled and signature:
+                    deprio.add(signature)
+    except OSError as e:
+        print(f"WARN: failed to read {csv_path}: {e}")
+        return
+    _deprioritized_name_signatures = deprio
+    print(f"Loaded {len(deprio)} deprioritized name signatures "
+          f"(of {total} total) from {csv_path}")
+
+
+_load_deprioritized_name_signatures(NAME_SIGNATURE_CSV_PATH)
+
+
+def _unwrap(v):
+    if isinstance(v, Variant):
+        return v.value
+    return v
+
+
+def _classify_uuid(uuid_str):
+    """Return ('u16', 'u32', or 'u128', stripped_hex) for a BlueZ UUID.
+
+    BlueZ always renders UUIDs in 8-4-4-4-12 form. UUID16 and UUID32 forms
+    have the BT base suffix and zero-padded prefix; UUID128 (custom) does
+    not. None on parse failure.
+    """
+    if not isinstance(uuid_str, str):
+        return None, None
+    u = uuid_str.lower()
+    if u.endswith(_BT_BASE_UUID_SUFFIX):
+        prefix = u.split("-", 1)[0]
+        if len(prefix) != 8:
+            return None, None
+        if prefix.startswith("0000"):
+            return "u16", prefix[4:]
+        return "u32", prefix
+    return "u128", u.replace("-", "")
+
+
+def _compute_adv_signature(merged_props):
+    """Build the deterministic signature string from a Device1 props dict.
+
+    Mirror Analysis/build_adv_signature_priority.py:build_signature() —
+    field separator '|', key=value '=', list separator '+', sorted keys,
+    sorted list values. Fields with no value are omitted.
+
+    Returns "" when no signature-bearing props are present.
+    """
+    components = {
+        "fl": set(), "u16": set(), "u32": set(), "u128": set(),
+        "sd16": set(), "sd32": set(), "sd128": set(),
+        "mfr": set(), "ap": set(), "tx": set(),
+    }
+
+    flags = _unwrap(merged_props.get("AdvertisingFlags"))
+    if isinstance(flags, (bytes, bytearray)) and len(flags) >= 1:
+        # Mask reserved bits to match the pcap-side normalisation in
+        # build_adv_signature_priority.py:parse_packet().
+        components["fl"].add(f"{flags[0] & 0x1F:02x}")
+    elif isinstance(flags, list) and len(flags) >= 1:
+        try:
+            components["fl"].add(f"{int(flags[0]) & 0x1F:02x}")
+        except (TypeError, ValueError):
+            pass
+
+    uuids = _unwrap(merged_props.get("UUIDs")) or []
+    if isinstance(uuids, list):
+        for u in uuids:
+            kind, val = _classify_uuid(u)
+            if kind is not None:
+                components[kind].add(val)
+
+    sd = _unwrap(merged_props.get("ServiceData")) or {}
+    if isinstance(sd, dict):
+        for u in sd.keys():
+            kind, val = _classify_uuid(u)
+            if kind is not None:
+                # Map u16/u32/u128 -> sd16/sd32/sd128
+                components["sd" + kind[1:]].add(val)
+
+    md = _unwrap(merged_props.get("ManufacturerData")) or {}
+    if isinstance(md, dict):
+        for cid in md.keys():
+            try:
+                components["mfr"].add(f"{int(cid):04x}")
+            except (TypeError, ValueError):
+                continue
+
+    app = _unwrap(merged_props.get("Appearance"))
+    if app is not None:
+        try:
+            components["ap"].add(f"{int(app):04x}")
+        except (TypeError, ValueError):
+            pass
+
+    txp = _unwrap(merged_props.get("TxPower"))
+    if txp is not None:
+        try:
+            components["tx"].add(str(int(txp)))
+        except (TypeError, ValueError):
+            pass
+
+    parts = []
+    for k in sorted(components.keys()):
+        if not components[k]:
+            continue
+        parts.append(f"{k}={'+'.join(sorted(components[k]))}")
+    return "|".join(parts)
+
+
+def _update_sig_props_cache(bdaddr, props):
+    """Merge any signature-relevant entries from props into the cache.
+
+    Returns the merged dict (a copy you can safely pass to
+    _compute_adv_signature without further locking).
+    """
+    with _device_sig_props_lock:
+        cache = _device_sig_props.setdefault(bdaddr, {})
+        for k in _SIG_RELEVANT_PROPS:
+            if k in props:
+                cache[k] = props[k]
+        return dict(cache)
+
+
 def _classify(props):
     """Return 'BTC' if Device1 props look like BR/EDR, else 'BLE'."""
     return "BTC" if "Class" in props else "BLE"
@@ -1000,6 +1345,12 @@ def _address(props):
         v = v.value
     return v.lower() if isinstance(v, str) else None
 
+def _device_name(props):
+    v = props.get("Name")
+    if isinstance(v, Variant):
+        v = v.value
+    return v if isinstance(v, str) else None
+
 def _manufacturer_keys(props):
     v = props.get("ManufacturerData")
     if isinstance(v, Variant):
@@ -1008,30 +1359,87 @@ def _manufacturer_keys(props):
         return set(v.keys())
     return set()
 
-def _maybe_deprioritize(bdaddr, kind, mfr_keys):
-    """Mirror the legacy 0x004c (Apple) deprioritization behavior."""
-    if APPLE_COMPANY_ID not in mfr_keys:
-        return False
-    key_str = f"0x{APPLE_COMPANY_ID:04x}"
+def _move_to_deprioritized(bdaddr, kind, reason):
+    """Move bdaddr from the active dict to the deprioritized one.
+
+    Returns True if the move happened (i.e. the bdaddr was still active).
+    Used by both the legacy Apple-CID rule and the signature-CSV rule.
+    """
     if kind == "BLE":
         with ble_bdaddrs_lock:
             if bdaddr in ble_bdaddrs:
                 (atype, rssi) = ble_bdaddrs[bdaddr]
                 with ble_deprioritized_bdaddrs_lock:
-                    ble_deprioritized_bdaddrs[bdaddr] = (atype, rssi, key_str)
+                    ble_deprioritized_bdaddrs[bdaddr] = (atype, rssi, reason)
                 del ble_bdaddrs[bdaddr]
-                if(BLE_thread_enabled and print_verbose): print(f"Deprioritized BLE {atype} {bdaddr} due to ManufacturerData {key_str}")
+                if(BLE_thread_enabled and print_verbose):
+                    print(f"Deprioritized BLE {atype} {bdaddr} due to {reason}")
                 return True
     else:  # BTC
         with btc_bdaddrs_lock:
             if bdaddr in btc_bdaddrs:
                 (atype, rssi) = btc_bdaddrs[bdaddr]
                 with btc_deprioritized_bdaddrs_lock:
-                    btc_deprioritized_bdaddrs[bdaddr] = (atype, rssi, key_str)
+                    btc_deprioritized_bdaddrs[bdaddr] = (atype, rssi, reason)
                 del btc_bdaddrs[bdaddr]
-                if(BTC_thread_enabled and print_verbose): print(f"Deprioritized BTC {atype} {bdaddr} due to ManufacturerData {key_str}")
+                if(BTC_thread_enabled and print_verbose):
+                    print(f"Deprioritized BTC {atype} {bdaddr} due to {reason}")
                 return True
     return False
+
+
+def _maybe_deprioritize(bdaddr, kind, mfr_keys):
+    """Mirror the legacy 0x004c (Apple) deprioritization behavior."""
+    if APPLE_COMPANY_ID not in mfr_keys:
+        return False
+    return _move_to_deprioritized(bdaddr, kind, f"ManufacturerData 0x{APPLE_COMPANY_ID:04x}")
+
+
+def _signature_subset_match(device_parsed, anchor_parsed):
+    """True if every (key, values) pair in anchor is present in device.
+
+    Anchor's values for a given key must all be in the device's values for
+    that key. Device may have *additional* keys and values; that's fine —
+    a shorter anchor subsuming a longer device sig is the whole point.
+    """
+    for k, vs in anchor_parsed.items():
+        dv = device_parsed.get(k)
+        if dv is None or not vs.issubset(dv):
+            return False
+    return True
+
+
+def _maybe_deprioritize_by_signature(bdaddr, kind, props):
+    """Deprioritize bdaddr if its current AD signature is a (non-strict)
+    superset of any deprio entry in the CSV.
+
+    `props` is the full Device1 prop dict (or just the changed subset).
+    We merge into the per-bdaddr cache before computing the signature so
+    that a PropertiesChanged delta still produces the full-state signature.
+    """
+    if not _deprioritized_adv_signatures:
+        return False
+    merged = _update_sig_props_cache(bdaddr, props)
+    sig = _compute_adv_signature(merged)
+    if not sig:
+        return False
+    device_parsed = _parse_signature_string(sig)
+    for anchor_sig, anchor_parsed in _deprioritized_adv_signatures:
+        if _signature_subset_match(device_parsed, anchor_parsed):
+            return _move_to_deprioritized(bdaddr, kind,
+                                          f"AdvSignature ⊇ {anchor_sig}")
+    return False
+
+
+def _maybe_deprioritize_by_name(bdaddr, kind, props):
+    """Deprioritize an active device whose BlueZ Name is already GATT-covered."""
+    if not _deprioritized_name_signatures:
+        return False
+    name = _device_name(props)
+    signature = _name_signature(name)
+    if not signature or signature not in _deprioritized_name_signatures:
+        return False
+    return _move_to_deprioritized(bdaddr, kind, f"Name {name!r}")
 
 def _device_added(path, props):
     """Handle a newly-discovered device. props is the org.bluez.Device1 a{sv} dict."""
@@ -1053,9 +1461,20 @@ def _device_added(path, props):
     if kind == "BLE":
         with btc_bdaddrs_lock:
             btc_bdaddrs.pop(bdaddr, None)
-        with ble_bdaddrs_lock:
-            ble_bdaddrs[bdaddr] = (atype, rssi)
-        if(BLE_thread_enabled and print_verbose): print(f"[NEW] BLE {bdaddr} ({atype}, RSSI={rssi})")
+        remains_value_deprioritized = False
+        with ble_gatt_value_deprioritized_bdaddrs_lock:
+            if bdaddr in ble_gatt_value_deprioritized_bdaddrs:
+                ble_gatt_value_deprioritized_bdaddrs[bdaddr] = (atype, rssi)
+                remains_value_deprioritized = True
+        if not remains_value_deprioritized:
+            with ble_bdaddrs_lock:
+                ble_bdaddrs[bdaddr] = (atype, rssi)
+            if(BLE_thread_enabled and print_verbose): print(f"[NEW] BLE {bdaddr} ({atype}, RSSI={rssi})")
+        elif BLE_thread_enabled and print_verbose:
+            print(
+                f"[NEW] BLE {bdaddr} ({atype}, RSSI={rssi}) remains "
+                "deprioritized for GATT value reads"
+            )
     else:
         with ble_bdaddrs_lock:
             ble_bdaddrs.pop(bdaddr, None)
@@ -1064,6 +1483,11 @@ def _device_added(path, props):
         if(BTC_thread_enabled and print_verbose): print(f"[NEW] BTC {bdaddr} ({atype}, RSSI={rssi})")
     # If the seed/initial-snapshot already includes Apple ManufacturerData, deprioritize immediately.
     _maybe_deprioritize(bdaddr, kind, _manufacturer_keys(props))
+    # Likewise, if the initial props already match a known-data signature.
+    _maybe_deprioritize_by_signature(bdaddr, kind, props)
+    # Name is an independent signal: either AD/EIR or a remote-name result can
+    # identify a family for which another address already yielded GATT values.
+    _maybe_deprioritize_by_name(bdaddr, kind, props)
 
 def _device_removed(path):
     """Mirror the legacy [DEL] handling. We don't know the kind from the path alone, so try both dicts."""
@@ -1137,6 +1561,10 @@ def _device_props_changed(path, changed):
                         device_connect_attempts[bdaddr] -= 1
                     ble_bdaddrs[bdaddr] = (atype, new_rssi)
                     if(BLE_thread_enabled and print_rssi_updates): print(f"Updated BLE RSSI ({new_rssi}) for {bdaddr}")
+            with ble_gatt_value_deprioritized_bdaddrs_lock:
+                if bdaddr in ble_gatt_value_deprioritized_bdaddrs:
+                    (atype, _old_rssi) = ble_gatt_value_deprioritized_bdaddrs[bdaddr]
+                    ble_gatt_value_deprioritized_bdaddrs[bdaddr] = (atype, new_rssi)
             with btc_bdaddrs_lock:
                 if bdaddr in btc_bdaddrs:
                     (atype, old_rssi) = btc_bdaddrs[bdaddr]
@@ -1157,6 +1585,32 @@ def _device_props_changed(path, changed):
                 if bdaddr in btc_bdaddrs: kind = "BTC"
         if kind is not None:
             _maybe_deprioritize(bdaddr, kind, _manufacturer_keys(changed))
+
+    # Re-evaluate the AD signature whenever any signature-bearing property
+    # changes — the same bdaddr can get a more-specific signature once
+    # later advertisements expose UUIDs / ServiceData / etc., and a more
+    # specific signature may newly match a deprioritized entry.
+    if any(k in changed for k in _SIG_RELEVANT_PROPS):
+        kind = None
+        with ble_bdaddrs_lock:
+            if bdaddr in ble_bdaddrs: kind = "BLE"
+        if kind is None:
+            with btc_bdaddrs_lock:
+                if bdaddr in btc_bdaddrs: kind = "BTC"
+        if kind is not None:
+            _maybe_deprioritize_by_signature(bdaddr, kind, changed)
+
+    # Name commonly arrives after InterfacesAdded (for example from an active
+    # scan response or BR/EDR remote-name request), so re-evaluate on updates.
+    if "Name" in changed:
+        kind = None
+        with ble_bdaddrs_lock:
+            if bdaddr in ble_bdaddrs: kind = "BLE"
+        if kind is None:
+            with btc_bdaddrs_lock:
+                if bdaddr in btc_bdaddrs: kind = "BTC"
+        if kind is not None:
+            _maybe_deprioritize_by_name(bdaddr, kind, changed)
 
 
 # Match rules registered with the bus daemon so it forwards the signals we care about.
@@ -1332,6 +1786,73 @@ def reprioritize_ble_bdaddr(bdaddr):
                 ble_bdaddrs[bdaddr] = (type, rssi)
                 print(f"Reprioritized {type} {bdaddr} ({rssi})")
 
+def reprioritize_ble_gatt_value_bdaddr(bdaddr):
+    """Promote one covered-map device for a forced value-reading reconnect."""
+    with ble_bdaddrs_lock:
+        with ble_gatt_value_deprioritized_bdaddrs_lock:
+            state = ble_gatt_value_deprioritized_bdaddrs.pop(bdaddr, None)
+            if state is None:
+                return False
+            ble_bdaddrs[bdaddr] = state
+            gatt_force_read_bdaddrs.add(bdaddr)
+    print(
+        f"Reprioritized {state[0]} {bdaddr} ({state[1]}) for forced "
+        "GATT characteristic-value reads"
+    )
+    return True
+
+
+def _promote_ble_fallbacks_for_capacity():
+    """Fill otherwise-idle BG slots without jumping ready normal work."""
+    available_slots = bg_dongle_queue.qsize()
+    if available_slots <= 0:
+        return
+    with bg_inflight_bdaddrs_lock:
+        inflight = set(bg_inflight_bdaddrs)
+    with ble_bdaddrs_lock:
+        ready_normal = sum(1 for bdaddr in ble_bdaddrs if bdaddr not in inflight)
+    slots_to_fill = max(0, available_slots - ready_normal)
+    if slots_to_fill == 0:
+        return
+
+    cutoff = datetime.datetime.now() - datetime.timedelta(
+        seconds=DEPRIORITIZED_RECENCY_S
+    )
+    for _ in range(slots_to_fill):
+        # Address/name/advertisement deprioritization is an earlier phase:
+        # these devices still need their structural GATT map, so they rank
+        # ahead of devices whose maps are already known and only need values.
+        with ble_deprioritized_bdaddrs_lock:
+            preconnect_candidates = sorted(
+                (
+                    (bdaddr, state[1])
+                    for bdaddr, state in ble_deprioritized_bdaddrs.items()
+                    if device_last_seen.get(bdaddr, datetime.datetime.min) >= cutoff
+                ),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+        if preconnect_candidates:
+            reprioritize_ble_bdaddr(preconnect_candidates[0][0])
+            continue
+
+        with ble_gatt_value_deprioritized_bdaddrs_lock:
+            value_candidates = sorted(
+                (
+                    (bdaddr, state[1])
+                    for bdaddr, state in
+                    ble_gatt_value_deprioritized_bdaddrs.items()
+                    if device_last_seen.get(bdaddr, datetime.datetime.min) >= cutoff
+                ),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+        if value_candidates:
+            reprioritize_ble_gatt_value_bdaddr(value_candidates[0][0])
+            continue
+        break
+
+
 def reprioritize_btc_bdaddr(bdaddr):
     with ble_bdaddrs_lock:
         type = ""
@@ -1348,6 +1869,11 @@ def ble_thread_function():
     global device_connect_attempts, device_total_attempts
     ble_external_tool_threads = []
     while True:
+        # If fewer ready normal addresses exist than currently-free BG dongles,
+        # fill the spare capacity from pre-connect deprioritized work first,
+        # then from covered-map value reads. With N dongles and N-1 ready normal
+        # devices this intentionally starts one deferred device in parallel.
+        _promote_ble_fallbacks_for_capacity()
         # Get the BDADDRs sorted in descending order of their RSSI, so we process higher RSSI first.
         # Snapshot under lock to avoid 'dictionary changed size during iteration' against the
         # D-Bus discovery callbacks which run on the asyncio main thread.
@@ -1378,23 +1904,8 @@ def ble_thread_function():
                 # Delete it otherwise it will just keep coming up over and over again in the while True loop
                 locked_delete_from_dict(ble_bdaddrs, ble_bdaddrs_lock, bdaddr)
 
-                if(skip_count == len(sorted_ble_bdaddrs) and len(ble_deprioritized_bdaddrs) > 0):
-                    print("BLE: Everything's being skipped. We could go ahead and do some deprioritized bdaddrs now...")
-                    # Only fall back onto deprioritized bdaddrs that we've still been
-                    # hearing adverts from in the last DEPRIORITIZED_RECENCY_S seconds.
-                    # Old entries (e.g., an Apple device that wandered out of range and
-                    # never got [DEL]'d because BlueZ kept it around) would otherwise
-                    # consume connect attempts on devices that aren't even present.
-                    cutoff = datetime.datetime.now() - datetime.timedelta(seconds=DEPRIORITIZED_RECENCY_S)
-                    with ble_deprioritized_bdaddrs_lock:
-                        recent_candidates = [b for b in ble_deprioritized_bdaddrs
-                                             if device_last_seen.get(b, datetime.datetime.min) >= cutoff]
-                    if recent_candidates:
-                        bdaddr = recent_candidates[0]
-                        print(f"BLE: Reprioritizing {bdaddr} (recently heard; {len(recent_candidates)} of {len(ble_deprioritized_bdaddrs)} deprioritized still active)")
-                        reprioritize_ble_bdaddr(bdaddr)
-                    else:
-                        print(f"BLE: No deprioritized bdaddrs heard in last {DEPRIORITIZED_RECENCY_S}s; nothing to reprioritize")
+                if(skip_count == len(sorted_ble_bdaddrs)):
+                    _promote_ble_fallbacks_for_capacity()
 
                 continue
             else:
@@ -1462,6 +1973,15 @@ def ble_thread_function():
                             # Skip-apple: BG will early-exit (rc 0x0A) on confirmed Apple devices.
                             if(better_getter_skip_apple):
                                 gatt_cmd.append("-A")
+                            with ble_gatt_value_deprioritized_bdaddrs_lock:
+                                force_value_reads = bdaddr in gatt_force_read_bdaddrs
+                            if force_value_reads:
+                                gatt_cmd.append("--force-read-values")
+                                external_log_write(
+                                    bgprint_log_path,
+                                    f"BETTERGETTER FORCED VALUE ATTEMPT FOR: "
+                                    f"{bdaddr} {datetime.datetime.now()}",
+                                )
                             try:
                                 if(sniffle_stdout_logging):
                                     sniffle_append_stdout = open(f"{BG_output_pcap_path}/Sniffle_stdout.log", "a")
@@ -1477,7 +1997,14 @@ def ble_thread_function():
                                 # This doesn't seem to ever resolve itself for hours after it eventually occurs (which takes about 5 hours). So I need to just reboot to resolve it
                                 force_reboot()
                             if(gatt_process != None):
-                                gatt_thread = ApplicationThread(gatt_process, bdaddr, info_type="GATT", timeout=20, bg_dongle_path=bg_dongle_path) # Unfortunately I found some device that can take ~21 sec(!) even when tested manually
+                                gatt_thread = ApplicationThread(
+                                    gatt_process,
+                                    bdaddr,
+                                    info_type="GATT",
+                                    timeout=20,
+                                    bg_dongle_path=bg_dongle_path,
+                                    gatt_device_state=(type, rssi),
+                                ) # Unfortunately I found some device that can take ~21 sec(!) even when tested manually
                                 try:
                                     gatt_thread.start()
                                     launched_thread = gatt_thread
@@ -1510,6 +2037,7 @@ def ble_thread_function():
         # running on the main thread it caused CPU starvation under the GIL — D-Bus signal
         # callbacks couldn't run, ble_bdaddrs never got populated, and the worker spun forever.
         while(len(ble_bdaddrs) == 0):
+            _promote_ble_fallbacks_for_capacity()
             time.sleep(1)
 
 

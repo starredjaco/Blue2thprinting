@@ -5,6 +5,35 @@ import globals
 from BG_Helper_All import *
 from BG_Helper_ATT import *
 from BG_Helper_Output import *
+from gatt_handle_uuid_priority import handle_uuid_signature
+
+GATT_VALUES_DEFERRED_EXIT_CODE = 0x2D
+
+
+def maybe_defer_gatt_value_reads():
+    """Persist the discovered map and exit before ATT_READ on a covered family."""
+    if globals.gatt_value_priority_checked:
+        return False
+    if not globals.characteristic_read_by_type_req_all_received:
+        return False
+
+    globals.gatt_value_priority_checked = True
+    if globals.force_gatt_value_reads or not globals.gatt_value_priority_signatures:
+        return False
+    try:
+        signature = handle_uuid_signature(globals.received_handles)
+    except ValueError as error:
+        print(f"GATT value priority: invalid discovered handle map ({error}); reading values")
+        return False
+    if not signature or signature not in globals.gatt_value_priority_signatures:
+        return False
+
+    print(
+        "GATT value priority: exact handle/UUID map already has value data; "
+        "saving structure and deferring ATT_READ"
+    )
+    print_and_exit(GATT_VALUES_DEFERRED_EXIT_CODE)
+    return True
 
 ####################################################################################
 # Detect Apple devices based on
@@ -313,6 +342,12 @@ def outgoing_read_all_handles(actual_body_len, dpkt):
     global handle_read_last_sent_handle
 
     if(not globals.characteristic_read_by_type_req_all_received):
+        return
+
+    # This is the exact boundary between structural enumeration and value
+    # reads. A covered map is retained, but its values move to the launcher's
+    # deferred queue and are forced on a later reconnect.
+    if(maybe_defer_gatt_value_reads()):
         return
 
     if(globals.all_info_handles_recv and not globals.handle_read_req_sent_time):

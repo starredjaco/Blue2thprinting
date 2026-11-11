@@ -16,6 +16,7 @@ fixtures/seed.sql). The run_tme fixture always passes --use-test-db.
 """
 
 from test_db_query import rendered_bdaddrs, ALL_TEST_BDADDR_REGEX
+from conftest import _mysql, TEST_DB
 
 ALL_SEEDED = {f"aa:bb:cc:11:22:0{n}" for n in range(1, 6)}
 
@@ -76,6 +77,23 @@ def test_NOT_name_regex_drops_device_with_matching_name(run_tme):
         f"--NOT-name-regex TestGATT2 should drop device 2; got: {rendered}"
     # The other four should remain
     assert (ALL_SEEDED - {"aa:bb:cc:11:22:02"}).issubset(rendered)
+
+
+def test_NOT_name_regex_drops_explicit_bdaddr_with_GATT_only_name(db_clean, run_tme):
+    """An uppercase --bdaddr must be excluded by a name found only via GATT."""
+    _mysql([
+        "-D", TEST_DB, "-e",
+        "UPDATE GATT_characteristics_values "
+        "SET byte_values = UNHEX('416E64726F69642D36363537') "
+        "WHERE bdaddr = 'aa:bb:cc:11:22:02' AND char_value_handle = 3",
+    ])
+    assert rendered_bdaddrs(run_tme("--name-regex", "Android").stdout) == {
+        "aa:bb:cc:11:22:02"
+    }
+    result = run_tme(
+        "--bdaddr", "AA:BB:CC:11:22:02", "--NOT-name-regex", "Android"
+    )
+    assert rendered_bdaddrs(result.stdout) == set()
 
 
 # ---------------------------------------------------------------------------

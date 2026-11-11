@@ -492,14 +492,17 @@ def get_bdaddr_type(bdaddr, random):
 
     if(random == 0):
         bdaddr_type_str = "Public"
-    elif(bdaddr[0].lower() == 'f' or bdaddr[0].lower() == 'e' or bdaddr[0] == 'd' or bdaddr[0].lower() == 'c'):
-        bdaddr_type_str = "Random Static"
-    elif(random == 1 and (bdaddr[0] == '7' or bdaddr[0] == '6' or bdaddr[0] == '5' or bdaddr[0] == '4')):
-        bdaddr_type_str = "Random Resolvable"
-    elif(random == 1 and (bdaddr[0] == '3' or bdaddr[0] == '2' or bdaddr[0] == '1' or bdaddr[0] == '0')):
-        bdaddr_type_str = "Random Non-Resolvable"
+    elif(random == 1):
+        # The random-address subtype is encoded in the two most significant bits.
+        subtype = int(bdaddr[:2], 16) >> 6
+        bdaddr_type_str = {
+            0b00: "Random Non-Resolvable",
+            0b01: "Random Resolvable",
+            0b10: "Invalid Random (reserved 0b10 address prefix)",
+            0b11: "Random Static",
+        }[subtype]
     else:
-        bdaddr_type_str = "Random Buggy?"
+        bdaddr_type_str = "Unknown address type"
 
     return bdaddr_type_str
 
@@ -570,6 +573,14 @@ def print_company_name_from_bdaddr(indent, bdaddr, print_type):
     if(not is_classic):
         random = is_bdaddr_le_and_random(bdaddr)
 
+    # A random address cannot begin with 0b10: those bits are reserved by the
+    # Bluetooth specification. Older captures sometimes guessed "Random" from
+    # the high byte of a public address, so do not suppress its IEEE OUI.
+    invalid_random_type = random == 1 and (int(bdaddr[:2], 16) & 0xC0) == 0x80
+    if(invalid_random_type):
+        qprint(f"{indent}Address type conflict: imported records mark this address Random, but its 0b10 prefix is reserved for Random addresses. Treating it as likely Public for the IEEE OUI lookup.")
+        random = 0
+
     if(random):
         qprint(f"{indent}Company Name by IEEE OUI: Not Applicable because this is a {get_bdaddr_type(bdaddr, random)} address")
         #vprint("")
@@ -589,6 +600,8 @@ def print_company_name_from_bdaddr(indent, bdaddr, print_type):
         if(print_type):
             if(is_classic):
                 qprint(f"{indent}{i1}BDADDR is Bluetooth Classic")
+            elif(invalid_random_type):
+                qprint(f"{indent}{i1}BDADDR is likely Bluetooth Low Energy Public (imported Random type is invalid)")
             else:
                 qprint(f"{indent}{i1}BDADDR is Bluetooth Low Energy Public")
         # qprint("")

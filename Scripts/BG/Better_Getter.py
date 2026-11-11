@@ -16,6 +16,7 @@
 
 import re
 import math
+from pathlib import Path
 import globals
 from BG_Helper_All import *
 from BG_Helper_LL import *
@@ -24,6 +25,7 @@ from BG_Helper_ATT import *
 from BG_Helper_GATT import *
 from BG_Helper_SMP import *
 from BG_Helper_Output import *
+from gatt_handle_uuid_priority import load_deprioritized_signatures
 
 def main():
     global target_bdaddr, target_bdaddr_type_public, verbose
@@ -39,7 +41,37 @@ def main():
     aparse.add_argument("-q", "--quiet", action="store_true", help="Don't display empty packets")
     aparse.add_argument("-2", "--attempt-2M-PHY-update", action="store_true", help="Attempt to negotiate 2M PHY")
     aparse.add_argument("-A", "--skip-apple", action="store_true", help="Skip Apple devices")
+    aparse.add_argument(
+        "--gatt-handle-priority-csv",
+        default=str(
+            Path(__file__).resolve().parents[2]
+            / "Analysis"
+            / "gatt_handle_uuid_priority.csv"
+        ),
+        help="Exact handle/UUID maps whose characteristic values should be deferred",
+    )
+    aparse.add_argument(
+        "--force-read-values",
+        action="store_true",
+        help="Read values even when the discovered handle/UUID map is deprioritized",
+    )
     args = aparse.parse_args()
+
+    globals.force_gatt_value_reads = args.force_read_values
+    try:
+        globals.gatt_value_priority_signatures = load_deprioritized_signatures(
+            args.gatt_handle_priority_csv
+        )
+        print(
+            f"Loaded {len(globals.gatt_value_priority_signatures)} "
+            f"deprioritized GATT handle/UUID maps"
+        )
+    except OSError as error:
+        globals.gatt_value_priority_signatures = set()
+        print(
+            f"WARN: GATT handle/UUID priority CSV unavailable "
+            f"({args.gatt_handle_priority_csv}: {error}); reading values normally"
+        )
 
     globals.hw = SniffleHW(args.serport)
 

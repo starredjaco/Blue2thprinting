@@ -26,6 +26,10 @@ i5 = "          "
 # custom_uuid128_hash = {}
 # Metadata_v2 globals
 metadata_v2 = {}
+# LL_VERSION_IND controller/firmware fingerprint metadata
+ll_version_ind_metadata = {}
+# LMP_VERSION_REQ/RES controller/firmware fingerprint metadata
+lmp_version_metadata = {}
 # Model_Metadata_by_Manufacturer.json globals
 model_metadata_by_manufacturer = {}
 # clues globals hash indexed by UUID
@@ -173,4 +177,3 @@ g_printed_ChipMakerPrint_header = False
 ############################################################
 g_printed_unique_id_header = False
 g_printed_possible_unique_id_header = False
-

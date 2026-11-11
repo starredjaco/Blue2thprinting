@@ -90,7 +90,7 @@ def main():
     # Search arguments
     device_group = parser.add_argument_group('Database search arguments')
     device_group.add_argument('--bdaddr-type', type=int, default=None, required=False, help='BDADDR type (0 = LE Public, 1 = LE Random (but BT Classic will also be matched by default.) This forces DB lookups to require the given value, so it will decrease results.')
-    device_group.add_argument('--bdaddr', type=validate_bdaddr, required=False, help='Device bdaddr value. Note: passing --bdaddr will downselect from any BDADDRs found via optional BTIDALPOOL queries or optional input files to the single specified bdaddr.')
+    device_group.add_argument('--bdaddr', action='append', type=validate_bdaddr, required=False, help='Device bdaddr value. May be passed multiple times. Explicit BDADDRs replace those collected from optional BTIDALPOOL queries or input files.')
     device_group.add_argument('--NOT-bdaddr', action='append', required=False, help='Remove the given BDADDR from the final results. (This is more efficient than --NOT-bdaddr-regex). May be passed multiple times.')
     device_group.add_argument('--bdaddr-regex', action='append', required=False, help='Regex to match a bdaddr value. May be passed multiple times.')
     device_group.add_argument('--NOT-bdaddr-regex', action='append', required=False, help='Find the bdaddrs corresponding to the regexp, the same as with --bdaddr-regex, and then remove them from the final results. (NOTE: Use --NOT-bdaddr if you can, as it is more efficient.) May be passed multiple times.')
@@ -236,11 +236,15 @@ def main():
         qprint("Querying BTIDALPOOL")
         query_object = {}
         if args.bdaddr:
-            query_object["bdaddr"] = args.bdaddr
+            if len(args.bdaddr) == 1:
+                query_object["bdaddr"] = args.bdaddr[0]
+            else:
+                # BTIDALPOOL accepts a single exact BDADDR or a list of regexes.
+                query_object["bdaddr_regex"] = [f"^{re.escape(bdaddr)}$" for bdaddr in args.bdaddr]
         if args.NOT_bdaddr:
             query_object["NOT_bdaddr"] = args.NOT_bdaddr # NOTE: this will now be a list!
         if args.bdaddr_regex:
-            query_object["bdaddr_regex"] = args.bdaddr_regex
+            query_object.setdefault("bdaddr_regex", []).extend(args.bdaddr_regex)
         if args.NOT_bdaddr_regex:
             query_object["NOT_bdaddr_regex"] = args.NOT_bdaddr_regex
         if args.name_regex:
@@ -321,6 +325,12 @@ def main():
     import_metadata_v2()
     import_private_metadata_v2()
 
+    # Import LL_VERSION_IND controller/firmware fingerprints
+    import_LL_VERSION_IND_metadata()
+
+    # Import LMP_VERSION_REQ/RES controller/firmware fingerprints
+    import_LMP_VERSION_metadata()
+
     # Import CLUES
     import_CLUES()
     import_private_CLUES()
@@ -356,9 +366,14 @@ def main():
     # TODO: consider doing this in the future if it adds too much overhead to every invocation
     create_ChipMaker_OUI_hash()
 
-    # Note: passing the --bdaddr argument will override any bdaddrs collected from the BTIDALPOOL or from the input files
+    # Explicit BDADDRs override any collected from BTIDALPOOL or input files.
     if(args.bdaddr is not None):
-        bdaddrs = [args.bdaddr]
+        bdaddrs = []
+        seen_bdaddrs = set()
+        for bdaddr in args.bdaddr:
+            if bdaddr.lower() not in seen_bdaddrs:
+                bdaddrs.append(bdaddr)
+                seen_bdaddrs.add(bdaddr.lower())
 
     ######################################################
     # Options to simply print statistics from the database
@@ -494,12 +509,16 @@ def main():
             for entry in args.NOT_UUID_regex:
                 bdaddrs_to_remove.update(get_bdaddrs_by_uuid_regex(entry, args.bdaddr_type))
 
+    # Database lookups return lowercase BDADDRs, while explicit --bdaddr values
+    # retain the user's casing. Compare them without regard to case.
+    bdaddrs_to_remove = {bdaddr.lower() for bdaddr in bdaddrs_to_remove}
+
     # Now that we have all the bdaddrs_to_remove, loop through the bdaddrs list and remove them
     qprint(f"{len(bdaddrs_to_remove)} bdaddrs_to_remove")
     vprint(f"bdaddrs_to_remove = {bdaddrs_to_remove}")
     updated_bdaddrs = []
     for value in bdaddrs:
-        if(value in bdaddrs_to_remove):
+        if(value.lower() in bdaddrs_to_remove):
             continue
         else:
             updated_bdaddrs.append(value)

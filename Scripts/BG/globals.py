@@ -254,6 +254,14 @@ characteristic_read_by_type_req_sent_max_retries = 4
 characteristic_read_by_type_req_all_received = False
 characteristic_last_read_requested_handle = 2
 
+# Exact handle->UUID value-read prioritization. Better_Getter loads the
+# database-derived signatures at startup. Once structural discovery is
+# complete, a matching first-pass run exits with a distinct status before the
+# first ATT_READ; central_app_launcher later reconnects with force enabled.
+gatt_value_priority_signatures = set()
+gatt_value_priority_checked = False
+force_gatt_value_reads = False
+
 # SMP state
 SMP_CID_bytes = b'\x06\x00'
 smp_pairing_request_attempt_count = 0
