@@ -7,6 +7,7 @@
 from handle_venv import activate_venv
 activate_venv()
 import argparse
+import calendar
 
 # HCI file reading related adapter to feed into scapy
 import hci_log_parser as bts
@@ -24,7 +25,11 @@ import TME.TME_glob
 from TME.TME_helpers import qprint, vprint
 from TME.BT_Data_Types import *
 from TME.BTIDES_Data_Types import *
-from TME.TME_BTIDES_base import write_BTIDES
+from TME.TME_BTIDES_base import (
+    generic_SingleBDADDR_insertion_into_BTIDES_first_level_array,
+    write_BTIDES,
+)
+from TME.TME_BTIDES_AdvData import ff_adv_data_type_specific_obj
 
 # BTIDALPOOL access related
 from oauth_helper import AuthClient
@@ -35,9 +40,9 @@ from BTIDES_to_BTIDALPOOL import send_btides_to_btidalpool
 g_last_handle_to_bdaddr = {}
 g_last_bdaddr_connected_to = None
 
-def export_AdvChannelData(packet, scapy_type, adv_type):
-    fields = packet.getlayer(scapy_type).fields
-    if(scapy_type == HCI_Event_Extended_Inquiry_Result):
+def export_AdvChannelData(report, adv_type):
+    fields = report.fields
+    if isinstance(report, HCI_Event_Extended_Inquiry_Result):
         bdaddr_random = 0
         bdaddr = fields['bd_addr']
         data = fields['eir_data']
@@ -55,6 +60,74 @@ def export_AdvChannelData(packet, scapy_type, adv_type):
         return True
     else:
         return False # This is known to fire for things not yet supported like unprovisioned mesh beacons
+
+
+def export_HCI_Extended_Advertising_Report(report, timestamp, source_record_seq, report_index):
+    """Keep a nonlegacy HCI report without claiming its data came from one LL PDU."""
+    fields = report.fields
+    address_type = fields['atype']
+    if address_type == 0xff:
+        bdaddr, bdaddr_random = '00:00:00:00:00:00', 0xff
+    elif address_type in (0, 1, 2, 3):
+        bdaddr, bdaddr_random = fields['addr'], address_type & 1
+    else:
+        return False
+
+    # The fixed part of one HCI LE Extended Advertising Report is 24 bytes.
+    # Its Data field can combine several LL advertising PDUs or be a fragment.
+    raw_data = report.original[24:24 + fields['len']]
+    event_type = int.from_bytes(report.original[:2], 'little')
+    hci_entry = {
+        'event_code': 0x3e,
+        'subevent_code': 0x0d,
+        'event_type': event_type,
+        'address_type': address_type,
+        'primary_phy': fields['primary_phy'],
+        'secondary_phy': fields['secondary_phy'],
+        'advertising_sid': fields['sid'],
+        'tx_power': fields['tx_power'],
+        'rssi': fields['rssi'],
+        'periodic_adv_interval': fields['periodic_adv_interval'],
+        'data_status': fields['data_status'],
+        'data_length': fields['len'],
+        'advertising_data_hex_str': raw_data.hex(),
+        'source_record_seq': source_record_seq,
+        'report_index': report_index,
+    }
+    # hci_log_parser supplies a naive UTC datetime for both BTSnoop and
+    # PacketLogger. Use timegm rather than local-time conversion so repeated
+    # identical HCI observations keep their distinct collection times.
+    unix_time = calendar.timegm(timestamp.utctimetuple())
+    hci_entry['std_optional_fields'] = {
+        'time': {
+            'unix_time': unix_time,
+            'unix_time_milli': unix_time * 1000 + timestamp.microsecond // 1000,
+        }
+    }
+    if fields['directed']:
+        hci_entry['direct_address_type'] = fields['direct_addr_type']
+        hci_entry['direct_address'] = fields['direct_addr']
+    if TME.TME_glob.verbose_BTIDES:
+        hci_entry['event_code_str'] = 'HCI_LE_Extended_Advertising_Report'
+
+    # Parse complete AD structures for the usual BTIDES queries. Incomplete
+    # HCI fragments remain available verbatim above for later reassembly.
+    if fields['data_status'] == 0:
+        adv_data_array = []
+
+        def collect_adv_data(_bdaddr, _random, _adv_type, adv_data_type, data):
+            adv_data = ff_adv_data_type_specific_obj(adv_data_type, data)
+            if adv_data is not None:
+                adv_data_array.append(adv_data)
+
+        for entry in fields['data']:
+            export_AdvData(bdaddr, bdaddr_random, 'HCI_LE_Extended_Advertising_Report',
+                           entry, BTIDES_export_AdvData=collect_adv_data)
+        if adv_data_array:
+            hci_entry['AdvDataArray'] = adv_data_array
+
+    return generic_SingleBDADDR_insertion_into_BTIDES_first_level_array(
+        bdaddr, bdaddr_random, hci_entry, 'HCIArray')
 
 
 def export_to_L2CAPArray(packet, direction):
@@ -307,7 +380,7 @@ def process_connections(p):
     return False
 
 
-def process_advertisements(p):
+def process_advertisements(p, record):
     if p.haslayer(HCI_LE_Meta_Advertising_Reports):
         #p.show()
         data_exported = False
@@ -315,53 +388,57 @@ def process_advertisements(p):
         for report in adv_report.fields['reports']:
             adv_event_type = report.fields['type']
             if adv_event_type == 0x00:  # ADV_IND
-                if(export_AdvChannelData(p, HCI_LE_Meta_Advertising_Report, type_AdvChanPDU_ADV_IND)):
+                if(export_AdvChannelData(report, type_AdvChanPDU_ADV_IND)):
                     data_exported = True
             elif adv_event_type == 0x01:  # ADV_DIRECT_IND
-                if(export_AdvChannelData(p, HCI_LE_Meta_Advertising_Report, type_AdvChanPDU_ADV_DIRECT_IND)):
+                if(export_AdvChannelData(report, type_AdvChanPDU_ADV_DIRECT_IND)):
                     data_exported = True
             elif adv_event_type == 0x02:  # ADV_SCAN_IND
-                if export_AdvChannelData(p, HCI_LE_Meta_Advertising_Report, type_AdvChanPDU_ADV_SCAN_IND):
+                if export_AdvChannelData(report, type_AdvChanPDU_ADV_SCAN_IND):
                     data_exported = True
             elif adv_event_type == 0x03:  # ADV_NONCONN_IND
-                if export_AdvChannelData(p, HCI_LE_Meta_Advertising_Report, type_AdvChanPDU_ADV_NONCONN_IND):
+                if export_AdvChannelData(report, type_AdvChanPDU_ADV_NONCONN_IND):
                     data_exported = True
             elif adv_event_type == 0x04:  # SCAN_RSP
-                if export_AdvChannelData(p, HCI_LE_Meta_Advertising_Report, type_AdvChanPDU_SCAN_RSP):
+                if export_AdvChannelData(report, type_AdvChanPDU_SCAN_RSP):
                     data_exported = True
-            if (data_exported):
-                return True
+        if data_exported:
+            return True
     elif p.haslayer(HCI_LE_Meta_Extended_Advertising_Reports):
         #p.show()
         data_exported = False
         adv_report = p.getlayer(HCI_LE_Meta_Extended_Advertising_Reports)
-        for report in adv_report.fields['reports']:
-            # Only tested with one non-legacy sample so far...
-            #if(report.fields['legacy']):
+        for report_index, report in enumerate(adv_report.fields['reports']):
+            if not report.fields['legacy']:
+                if export_HCI_Extended_Advertising_Report(
+                        report, record.ts, record.seq, report_index):
+                    data_exported = True
+                continue
+
             # Per "Event_Type values for legacy PDUs" all of the below are legacy + the following:
             # 0b0000 - ADV_NONCONN_IND
             if not report.fields['scan_rsp'] and not report.fields['directed'] and not report.fields['scannable'] and not report.fields['connectable']:
-                if export_AdvChannelData(p, HCI_LE_Meta_Extended_Advertising_Report, type_AdvChanPDU_ADV_NONCONN_IND):
+                if export_AdvChannelData(report, type_AdvChanPDU_ADV_NONCONN_IND):
                     data_exported = True
                     continue
             # 0b0010 - ADV_SCAN_IND
             elif not report.fields['scan_rsp'] and not report.fields['directed'] and report.fields['scannable'] and not report.fields['connectable']:
-                if export_AdvChannelData(p, HCI_LE_Meta_Extended_Advertising_Report, type_AdvChanPDU_ADV_SCAN_IND):
+                if export_AdvChannelData(report, type_AdvChanPDU_ADV_SCAN_IND):
                     data_exported = True
                     continue
             # 0b0011 - ADV_IND
             if not report.fields['scan_rsp'] and not report.fields['directed'] and report.fields['scannable'] and report.fields['connectable']:
-                if export_AdvChannelData(p, HCI_LE_Meta_Extended_Advertising_Report, type_AdvChanPDU_ADV_IND):
+                if export_AdvChannelData(report, type_AdvChanPDU_ADV_IND):
                     data_exported = True
                     continue
             # 0b0101 - ADV_DIRECT_IND
             elif not report.fields['scan_rsp'] and report.fields['directed'] and not report.fields['scannable'] and report.fields['connectable']:
-                if export_AdvChannelData(p, HCI_LE_Meta_Extended_Advertising_Report, type_AdvChanPDU_ADV_DIRECT_IND):
+                if export_AdvChannelData(report, type_AdvChanPDU_ADV_DIRECT_IND):
                     data_exported = True
                     continue
             # 0b1011 - SCAN_RSP to ADV_IND or 0b1010 - SCAN_RSP to ADV_SCAN_IND
             elif report.fields['scan_rsp'] and not report.fields['directed'] and report.fields['scannable']:
-                if export_AdvChannelData(p, HCI_LE_Meta_Extended_Advertising_Report, type_AdvChanPDU_SCAN_RSP):
+                if export_AdvChannelData(report, type_AdvChanPDU_SCAN_RSP):
                     data_exported = True
         if (data_exported):
             return True
@@ -378,7 +455,7 @@ def process_advertisements(p):
         if (p.haslayer(EIR_Hdr)):
             eir = p.getlayer(EIR_Hdr)
             if eir.fields['len'] != 0:
-                export_AdvChannelData(p, HCI_Event_Extended_Inquiry_Result, type_BTIDES_EIR)
+                export_AdvChannelData(inq_result, type_BTIDES_EIR)
         return True
     elif p.haslayer(HCI_Event_Inquiry_Result):
         #p.show()
@@ -563,7 +640,7 @@ def read_HCI(file_path):
             #p.show()
             if(process_connections(p)):
                 continue
-            elif(process_advertisements(p)):
+            elif(process_advertisements(p, record)):
                 continue
             elif(process_features(p)):
                 continue
