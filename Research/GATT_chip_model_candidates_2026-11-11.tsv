@@ -1,0 +1,113 @@
+bdaddr	address_type	gatt_uuid	gatt_value	suspected_maker	suspected_model	kind	confidence	notes
+F4:42:50:75:B4:B6	public/unspecified	2a00	BL602-BLE-DEV	Bouffalo	BL602	chip	medium	Development Device Name; Bouffalo OUI
+44:B7:D0:7A:4D:52	public/unspecified	2a24	BM71	Microchip	BM71 / IS1871	module	high	BM71 module contains IS1871 per B-HIVEMIND; Microchip OUI
+14:B4:57:C2:78:97	public/unspecified	2a24	Blue Gecko	Silicon Labs	Blue Gecko	family	high	2A29 Silicon Labs; Silicon Labs OUI
+D0:CF:5E:02:85:3A	public/unspecified	2a24	Blue Gecko	Silicon Labs	Blue Gecko	family	high	2A29 Silicon Labs; Energy Micro OUI
+52:43:06:60:19:1B	public/unspecified	2a00	bluenrg	ST	BlueNRG	family	low	Generic Device Name; exact BlueNRG variant unknown
+60:98:66:7F:13:23	public/unspecified	2a24	CC2640	Texas Instruments	CC2640	chip	high	none
+48:27:E2:B5:41:DD	public/unspecified	2a24	Smart Lock Picking ESP32	Espressif	ESP32	family	high	none
+70:04:1D:14:DE:41	public/unspecified	2a24	Smart Lock Picking ESP32	Espressif	ESP32	family	high	none
+DC:0D:30:37:A9:0B	public/unspecified	2a24	FSC-BT836	Feasycom	FSC-BT836	module	high	2A29 Feasycom; verified Feasycom module
+DC:0D:30:11:D6:7B	random	2a24	FSC-BT946	Feasycom	FSC-BT946	module	high	2A29 Feasycom; verified Feasycom module
+66:32:F7:87:40:9F	public/unspecified	2a24	HS6602M-1212-0229	unknown	HS6602M	unresolved_component	low	Model may identify whole printer or radio module; no chip attribution established
+8C:DE:52:C7:DF:E1	public/unspecified	2a24	IS1678S152	Microchip	IS1678	chip	high	ISSC OUI; 2A29 MCHP; suffix variant not independently decoded
+C4:4E:EF:D4:25:0E	random	2a26	MT2827_SDK_V1.0.0.ER26	unknown	MT2827	unverified_sdk_code	low	Beats firmware SDK identifier; no source confirming a chip model
+41:F7:CC:74:B4:0C	random	2a26	MT2831_SDK_V1.1.0.ER44MT	unknown	MT2831	unverified_sdk_code	low	Beats firmware SDK identifier; no source confirming a chip model
+44:7E:36:33:CA:92	random	2a26	MT2831_SDK_V1.2.0.ER63	unknown	MT2831	unverified_sdk_code	low	Beats firmware SDK identifier; no source confirming a chip model
+C1:0B:5E:E1:2F:C3	random	2a26	MT2831_SDK_V1.0.0.ER34MT	unknown	MT2831	unverified_sdk_code	low	Beats firmware SDK identifier; no source confirming a chip model
+C5:99:E0:04:39:F5	random	2a26	MT2831_SDK_V1.1.0.ER44	unknown	MT2831	unverified_sdk_code	low	Beats firmware SDK identifier; no source confirming a chip model
+C8:38:7C:8D:C2:35	random	2a26	MT2831_SDK_V1.1.0.ER44	unknown	MT2831	unverified_sdk_code	low	Beats firmware SDK identifier; no source confirming a chip model
+C9:49:5C:A9:23:3E	random	2a26	MT2831_SDK_V1.1.0.ER44	unknown	MT2831	unverified_sdk_code	low	Beats firmware SDK identifier; no source confirming a chip model
+CB:43:18:EB:21:0B	random	2a26	MT2831_SDK_V1.1.0.ER44	unknown	MT2831	unverified_sdk_code	low	Beats firmware SDK identifier; no source confirming a chip model
+04:51:70:00:BE:21	public/unspecified	unmapped	QCC3040	Qualcomm	QCC3040	chip	high	Value handle has no matching characteristic declaration
+41:4F:93:62:2A:C8	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+44:11:45:57:F1:27	public/unspecified	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+49:70:55:84:BF:B2	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+51:FA:8C:86:B6:EB	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+56:9D:23:27:72:4B	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+56:B4:9B:22:C2:62	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+59:14:BF:5D:BF:D1	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+59:DA:CF:9C:82:F9	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+62:A5:E0:A8:ED:BC	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+63:E8:B5:87:48:EE	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+68:A6:3E:20:1B:9B	public/unspecified	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+69:75:F4:DC:B4:39	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+6F:05:DA:5F:3D:01	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+74:12:43:31:7D:6D	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+74:4B:4A:CB:1F:12	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+74:56:70:FF:95:2A	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+76:64:69:5D:49:6C	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+77:0A:70:65:35:54	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+7E:DA:8A:63:45:A5	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+7F:23:66:AB:DA:8B	random	2a24	QCC3040	Qualcomm	QCC3040	chip	high	none
+70:5A:6F:63:A2:E7	public/unspecified	2a24	QCC3072	Qualcomm	QCC3072	chip	high	none
+00:1E:C0:59:11:CC	public/unspecified	2a24	RN4020	Microchip	RN4020	module	high	none
+C6:12:AC:5D:CD:D4	random	2a27	NRF51822QFAAH0	Nordic	nRF51822	chip	high	2A28 also nRF5_SDK_11.0.0_89a8197
+AC:23:3F:8F:57:0A	public/unspecified	unmapped	nRF52-SDK13.0	Nordic	nRF52	family	medium	Value handle has no matching characteristic declaration; SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F2:E7:AC	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F2:E7:B2	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:25:F4	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:25:FC	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:26:11	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:26:19	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:26:1C	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:28:9B	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:28:A1	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:28:A7	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:28:B0	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:28:B2	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:28:CD	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:28:E0	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:28:E5	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:28:E8	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:28:EB	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:29:0E	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:29:13	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:29:36	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:29:3A	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:29:3D	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:29:3F	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:29:42	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:29:47	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:29:57	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:2A:ED	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:2B:47	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:2B:53	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:2B:6A	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:2B:98	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:2B:B8	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:2B:BC	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:2B:C3	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:2C:26	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:2C:28	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:2C:43	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:2C:E1	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:2D:37	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+AC:23:3F:F4:F9:3D	public/unspecified	2a28	nRF52-SDK13.0	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:0D:0F:FA	random	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:0D:10:61	random	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:0D:10:71	random	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:0D:10:A0	random	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:0D:10:B7	random	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:0D:10:EB	random	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:37:C9:BA	random	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:3D:78:FC	random	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:48:B9:5A	random	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:50:21:C9	random	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:50:21:F8	random	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:50:56:14	public/unspecified	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:52:3E:21	public/unspecified	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:5F:8A:57	random	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:60:A7:ED	random	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:66:9B:C7	public/unspecified	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:71:34:DE	random	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+C3:00:00:88:9B:73	random	2a28	nRF52-SDK17.02	Nordic	nRF52	family	medium	SDK string indicates nRF52 family, not an exact part
+DD:34:02:08:5B:01	random	2a24	K12ly_NRF52XX	Nordic	nRF52	family	medium	none
+11:22:33:44:55:66	public/unspecified	2a24	nrf52840	Nordic	nRF52840	chip	low	Placeholder-looking BDADDR and generic manufacturer string
+13:37:BE:EF:00:01	public/unspecified	2a24	nrf52840	Nordic	nRF52840	chip	low	Placeholder-looking BDADDR and generic manufacturer string
+00:17:FC:B6:DD:FA	public/unspecified	2a00	nRF5x	Nordic	nRF5x	family	low	Device Name alone; nRF51 versus nRF52 unresolved
+AC:23:3F:F4:2C:4F	public/unspecified	2a00	nRF5x	Nordic	nRF5x	family	low	Device Name alone; nRF51 versus nRF52 unresolved
+C3:00:00:0D:10:A1	random	2a00	nRF5x	Nordic	nRF5x	family	low	Device Name alone; nRF51 versus nRF52 unresolved
+C4:9A:30:17:A2:02	random	2a00	nRF5x	Nordic	nRF5x	family	low	Device Name alone; nRF51 versus nRF52 unresolved
+DC:31:5D:A9:18:2D	random	2a00	nRF5x	Nordic	nRF5x	family	low	Device Name alone; nRF51 versus nRF52 unresolved
+FD:64:72:8F:73:7F	random	2a00	nRF5x	Nordic	nRF5x	family	low	Device Name alone; nRF51 versus nRF52 unresolved

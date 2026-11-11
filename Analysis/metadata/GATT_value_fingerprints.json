@@ -1,0 +1,255 @@
+{
+  "schema_version": 1,
+  "description": "GATT value evidence for possible chip, chip-maker, module, module-maker, and SDK prints. UUIDs are characteristic UUIDs; patterns match decoded UTF-8 values after trailing NUL removal. Numeric SDK version coincidences require an independent ChipMakerPrint.",
+  "rules": [
+    {
+      "id": "ti_cc2640",
+      "uuid": "2a24",
+      "match": "exact",
+      "pattern": "CC2640",
+      "chip": "Texas Instruments CC2640",
+      "chip_maker": "Texas Instruments",
+      "confidence": "high",
+      "source": "B-HIVEMIND Datasheets_and_Documentation/TI/ChipToDatasheet.md"
+    },
+    {
+      "id": "qualcomm_qcc3040",
+      "uuid": "2a24",
+      "match": "exact",
+      "pattern": "QCC3040",
+      "allow_unmapped": true,
+      "chip": "Qualcomm QCC3040",
+      "chip_maker": "Qualcomm",
+      "confidence": "high",
+      "source": "B-HIVEMIND Datasheets_and_Documentation/Qualcomm/ChipToDatasheet.md"
+    },
+    {
+      "id": "qualcomm_qcc3072",
+      "uuid": "2a24",
+      "match": "exact",
+      "pattern": "QCC3072",
+      "chip": "Qualcomm QCC3072",
+      "chip_maker": "Qualcomm",
+      "confidence": "high",
+      "source": "B-HIVEMIND Datasheets_and_Documentation/Qualcomm/ChipToDatasheet.md"
+    },
+    {
+      "id": "microchip_is1678",
+      "uuid": "2a24",
+      "match": "regex",
+      "pattern": "^IS1678S[0-9A-Z]+$",
+      "chip": "Microchip IS1678 family",
+      "chip_maker": "Microchip Technology",
+      "confidence": "medium",
+      "source": "B-HIVEMIND Datasheets_and_Documentation/Microchip/ChipToDatasheet.md; GATT suffix S152 not decoded"
+    },
+    {
+      "id": "nordic_nrf51822_hardware",
+      "uuid": "2a27",
+      "match": "regex",
+      "pattern": "^NRF51822[A-Z0-9]*$",
+      "chip": "Nordic nRF51822",
+      "chip_maker": "Nordic Semiconductor",
+      "confidence": "high",
+      "source": "B-HIVEMIND Datasheets_and_Documentation/Nordic/ChipToDatasheet.md"
+    },
+    {
+      "id": "nordic_nrf52840_model",
+      "uuid": "2a24",
+      "match": "exact",
+      "pattern": "nRF52840",
+      "chip": "Nordic nRF52840",
+      "chip_maker": "Nordic Semiconductor",
+      "confidence": "medium",
+      "source": "B-HIVEMIND Datasheets_and_Documentation/Nordic/ChipToDatasheet.md; observed BDADDRs look like test placeholders"
+    },
+    {
+      "id": "nordic_nrf52_sdk_13",
+      "uuid": "2a28",
+      "match": "exact",
+      "pattern": "nRF52-SDK13.0",
+      "allow_unmapped": true,
+      "chip": "Nordic nRF52 family",
+      "chip_maker": "Nordic Semiconductor",
+      "sdk": "Nordic nRF5 SDK 13.0.x (device-reported shorthand)",
+      "confidence": "medium",
+      "source": "GATT Software Revision String; B-HIVEMIND SDKs/Nordic/nRF5_SDK/nRF5_SDK_v13.x.x; patch level not encoded"
+    },
+    {
+      "id": "nordic_nrf52_sdk_17_0_2",
+      "uuid": "2a28",
+      "match": "exact",
+      "pattern": "nRF52-SDK17.02",
+      "allow_unmapped": true,
+      "chip": "Nordic nRF52 family",
+      "chip_maker": "Nordic Semiconductor",
+      "sdk": "Nordic nRF5 SDK 17.0.2 (device-reported shorthand)",
+      "confidence": "medium",
+      "source": "GATT Software Revision String; B-HIVEMIND SDKs/Nordic/nRF5_SDK/nRF5_SDK_v17.x.x/nRF5_SDK_17.0.2_d674dde.zip"
+    },
+    {
+      "id": "nordic_nrf52xx_model",
+      "uuid": "2a24",
+      "match": "regex",
+      "pattern": "^K12ly_NRF52XX$",
+      "chip": "Nordic nRF52 family",
+      "chip_maker": "Nordic Semiconductor",
+      "confidence": "medium",
+      "source": "GATT Model Number String; exact Nordic part unknown"
+    },
+    {
+      "id": "nordic_nrf5x_device_name",
+      "uuid": "2a00",
+      "match": "exact",
+      "pattern": "nRF5x",
+      "chip": "Nordic nRF5x family",
+      "chip_maker": "Nordic Semiconductor",
+      "confidence": "low",
+      "source": "GATT Device Name; nRF51 versus nRF52 unresolved"
+    },
+    {
+      "id": "espressif_esp32_device_model",
+      "uuid": "2a24",
+      "match": "exact",
+      "pattern": "Smart Lock Picking ESP32",
+      "chip": "Espressif ESP32 family",
+      "chip_maker": "Espressif",
+      "confidence": "medium",
+      "source": "GATT Model Number String and Espressif OUIs; exact variant unknown"
+    },
+    {
+      "id": "silabs_blue_gecko",
+      "uuid": "2a24",
+      "match": "exact",
+      "pattern": "Blue Gecko",
+      "chip": "Silicon Labs Blue Gecko family",
+      "chip_maker": "Silicon Laboratories",
+      "confidence": "medium",
+      "source": "B-HIVEMIND Datasheets_and_Documentation/Silabs/ChipToDatasheet.md; exact EFR32 part unknown"
+    },
+    {
+      "id": "bouffalo_bl602_dev_name",
+      "uuid": "2a00",
+      "match": "exact",
+      "pattern": "BL602-BLE-DEV",
+      "chip": "Bouffalo BL602",
+      "chip_maker": "Bouffalo Lab",
+      "confidence": "medium",
+      "source": "B-HIVEMIND Datasheets_and_Documentation/Bouffalo/ChipToDatasheet.md; Bouffalo OUI"
+    },
+    {
+      "id": "st_bluenrg_dev_name",
+      "uuid": "2a00",
+      "match": "exact",
+      "pattern": "bluenrg",
+      "chip": "ST BlueNRG family",
+      "chip_maker": "STMicroelectronics",
+      "confidence": "low",
+      "source": "GATT Device Name only; exact part unknown"
+    },
+    {
+      "id": "microchip_bm71",
+      "uuid": "2a24",
+      "match": "exact",
+      "pattern": "BM71",
+      "chip": "Microchip IS1871",
+      "chip_maker": "Microchip Technology",
+      "module": "Microchip BM71",
+      "module_maker": "Microchip Technology",
+      "confidence": "high",
+      "source": "B-HIVEMIND Datasheets_and_Documentation/Microchip/ChipToDatasheet.md; Microchip BM70/BM71 datasheet"
+    },
+    {
+      "id": "microchip_rn4020",
+      "uuid": "2a24",
+      "match": "exact",
+      "pattern": "RN4020",
+      "module": "Microchip RN4020",
+      "module_maker": "Microchip Technology",
+      "confidence": "high",
+      "source": "B-HIVEMIND Datasheets_and_Documentation/Microchip/ChipToDatasheet.md; Microchip RN4020 product page"
+    },
+    {
+      "id": "feasycom_fsc_bt836",
+      "uuid": "2a24",
+      "match": "exact",
+      "pattern": "FSC-BT836",
+      "module": "Feasycom FSC-BT836",
+      "module_maker": "Feasycom",
+      "chip": "Realtek RTL8761 family",
+      "chip_maker": "Realtek",
+      "confidence": "high",
+      "source": "https://www.feasycom.net/Content/upload/2019217626/PDF/FSC-BT836-SPEC-V1.5.pdf; specification names RTL8761 and observed LMP_VERSION_RES Company ID 0x005D independently confirms Realtek; exact chip suffix unknown"
+    },
+    {
+      "id": "feasycom_fsc_bt946",
+      "uuid": "2a24",
+      "match": "exact",
+      "pattern": "FSC-BT946",
+      "module": "Feasycom FSC-BT946",
+      "module_maker": "Feasycom",
+      "confidence": "high",
+      "source": "https://www.feasycom.com/datasheet/fsc-bt946.pdf"
+    },
+    {
+      "id": "nordic_nrf5_sdk_build",
+      "uuid": "2a28",
+      "match": "exact",
+      "pattern": "nRF5_SDK_11.0.0_89a8197",
+      "sdk": "Nordic nRF5 SDK 11.0.0 (archive 89a8197)",
+      "confidence": "high",
+      "source": "GATT Software Revision String exactly matches B-HIVEMIND SDKs/Nordic/nRF5_SDK/nRF5_SDK_v11.x.x/nRF5_SDK_11.0.0_89a8197.zip"
+    },
+    {
+      "id": "silabs_gecko_sdk_version_candidate",
+      "uuid": "2a26",
+      "match": "regex",
+      "pattern": "^4\\.(?:2\\.[0-7]|3\\.[0-3]|4\\.[0-6]|5\\.[01])$",
+      "sdk": "Silicon Labs Gecko SDK release with matching version number",
+      "confidence": "low",
+      "requires_chip_maker": "Silicon Laboratories",
+      "chip_maker_cid": 767,
+      "source": "B-HIVEMIND SDKs/Silicon-Labs/gecko_sdk.official tags v4.2.0-v4.5.1; app/bluetooth/common/gatt_service_device_information/sl_gatt_service_device_information.c writes SL_GSDK_VERSION_STR to Firmware Revision String; matching version alone is ambiguous"
+    },
+    {
+      "id": "beats_mt28_sdk_build",
+      "uuid": "2a26",
+      "match": "regex",
+      "pattern": "^MT28(?:27|31)_SDK_V[0-9.]+\\.ER[0-9]+(?:MT)?$",
+      "sdk": "Unattributed MT28xx SDK build",
+      "confidence": "low",
+      "source": "Observed Beats Firmware Revision String; MT28xx chip and SDK vendor remain unverified"
+    },
+    {
+      "id": "soundcore_release_sdk_build",
+      "uuid": "2a26",
+      "match": "regex",
+      "pattern": "^FW VERSION-[0-9.]+-Release-SDK_[0-9.]+$",
+      "sdk": "Unattributed Soundcore SDK build",
+      "confidence": "low",
+      "source": "Observed Soundcore Space A40 Firmware Revision String; SDK vendor unknown"
+    },
+    {
+      "id": "enzytek_sdk_label",
+      "uuid": "2a26",
+      "match": "exact",
+      "pattern": "SDK 2.0",
+      "allow_unmapped": true,
+      "sdk": "Unattributed SDK 2.0",
+      "confidence": "low",
+      "source": "Observed Firmware Revision String on Enzytek PROCHBT001 and two unmapped GATT values; SDK vendor unknown"
+    }
+  ],
+  "research_only": [
+    {
+      "gatt_value_pattern": "^MT28(27|31)_SDK_",
+      "uuid": "2a26",
+      "reason": "Observed on eight Beats BDADDRs and captured as an unattributed SDKPrint. No reliable source establishes MT28xx as a chip model or identifies a chip maker."
+    },
+    {
+      "gatt_value": "HS6602M-1212-0229",
+      "uuid": "2a24",
+      "reason": "Could identify a printer or radio module; chip identity unverified."
+    }
+  ]
+}

@@ -324,6 +324,7 @@ def main():
     # Import metadata v2
     import_metadata_v2()
     import_private_metadata_v2()
+    import_GATT_value_fingerprints()
 
     # Import LL_VERSION_IND controller/firmware fingerprints
     import_LL_VERSION_IND_metadata()
@@ -576,8 +577,12 @@ def main():
         qprint(f"For bdaddr = {bdaddr}:")
         print_company_name_from_bdaddr(f"{i1}", bdaddr, True)
         print("")
-        print_ChipPrint(bdaddr, args.bdaddr_type)
-        print_ChipMakerPrint(bdaddr, args.bdaddr_type)      # Includes BTIDES export
+        gatt_value_matches = lookup_GATT_value_fingerprints(bdaddr, args.bdaddr_type)
+        print_ChipPrint(bdaddr, args.bdaddr_type, gatt_value_matches)
+        print_ChipMakerPrint(bdaddr, args.bdaddr_type, gatt_value_matches)      # Includes BTIDES export
+        print_ModulePrint(bdaddr, args.bdaddr_type, gatt_value_matches)
+        print_ModuleMakerPrint(bdaddr, args.bdaddr_type, gatt_value_matches)
+        print_SDKPrint(bdaddr, args.bdaddr_type, gatt_value_matches)
         print_classic_EIR_CID_info(bdaddr)                  # Includes BTIDES export
         print_all_advdata(bdaddr, args.bdaddr_type)         # Includes BTIDES export
         print_GATT_info(bdaddr, args.bdaddr_type)           # Includes BTIDES export

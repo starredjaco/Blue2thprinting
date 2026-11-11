@@ -26,6 +26,8 @@ i5 = "          "
 # custom_uuid128_hash = {}
 # Metadata_v2 globals
 metadata_v2 = {}
+# GATT characteristic-value fingerprints for chips and modules
+gatt_value_fingerprint_rules = []
 # LL_VERSION_IND controller/firmware fingerprint metadata
 ll_version_ind_metadata = {}
 # LMP_VERSION_REQ/RES controller/firmware fingerprint metadata
@@ -171,6 +173,9 @@ hide_android_data = False
 ############################################################
 g_printed_ChipPrint_header = False
 g_printed_ChipMakerPrint_header = False
+g_printed_ModulePrint_header = False
+g_printed_ModuleMakerPrint_header = False
+g_printed_SDKPrint_header = False
 
 ############################################################
 # For smarter handling of Unique ID header printing
